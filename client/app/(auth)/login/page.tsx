@@ -3,6 +3,8 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:2000";
+
 export default function LoginPage() {
   const router = useRouter();
 
@@ -21,7 +23,7 @@ export default function LoginPage() {
   setErrorMessage("");
 
   try {
-    const response = await fetch("http://localhost:2000/api/auth/login", {
+    const response = await fetch(`${API_URL}/api/auth/login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
