@@ -10,12 +10,10 @@ const {
 } = require("../controllers/category-controller");
 
 const router = express.Router();
-router.use(verifyToken, verifyRole(["admin", "master"]));
-
 router.get("/", getCategories);
 router.get("/:id", getCategoryById);
-router.post("/", createCategory);
-router.put("/:id", updateCategory);
-router.delete("/:id", deleteCategory);
+router.post("/", verifyToken, verifyRole(["admin", "master"]), createCategory);
+router.put("/:id", verifyToken, verifyRole(["admin", "master"]), updateCategory);
+router.delete("/:id", verifyToken, verifyRole(["admin", "master"]), deleteCategory);
 
 module.exports = router;
