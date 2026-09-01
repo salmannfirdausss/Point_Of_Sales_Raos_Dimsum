@@ -16,7 +16,7 @@ const dashboardRoutes = require("./routers/dashboard-router");
 const analisaRoutes = require("./routers/analisa-router");
 
 const server = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
 
 server.use(cors());
 server.use(express.json());
@@ -39,18 +39,7 @@ server.get("/", (req, res) => {
   });
 });
 
-const startServer = async () => {
-  try {
-    await db.sequelize.authenticate();
-    console.log("Database connection established");
-
-    server.listen(PORT, () => {
-      console.log(`Server is running at port : ${PORT}`);
-    });
-  } catch (error) {
-    console.error("Unable to connect to the database:", error.message);
-    process.exit(1);
-  }
-};
-
-startServer();
+server.listen(PORT, () => {
+  // db.sequelize.sync({ alter: true });
+  console.log(`Server is running at port : ${PORT}`);
+});
