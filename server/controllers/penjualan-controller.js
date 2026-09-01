@@ -7,7 +7,27 @@ const ProdukModel = db.produk || db.Produk || db.produks;
 const HargaProdukModel = db.hargaProduk;
 const OutletModel = db.Outlet;
 const DetailSausModel = db.DetailSaus || db.detailSaus || db.detailsaus;
+const AbsenModel = db.Absen || db.absen;
 const sequelize = db.sequelize;
+
+const getDateKeyInTimeZone = (dateValue, timeZone = "Asia/Jakarta") => {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const values = parts.reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+
+  return `${values.year}-${values.month}-${values.day}`;
+};
 
 function parseSauces(value) {
   if (value === undefined || value === null) return [];
@@ -55,6 +75,30 @@ const checkoutTransaksi = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: "Hanya kasir yang dapat membuat transaksi.",
+      });
+    }
+
+    const todayKey = getDateKeyInTimeZone(new Date());
+    const hasTodayAttendance = await AbsenModel.findOne({
+      where: { userId },
+      order: [["createdAt", "DESC"]],
+      transaction,
+    });
+
+    if (!hasTodayAttendance) {
+      await transaction.rollback();
+      return res.status(403).json({
+        success: false,
+        message: "Karyawan belum melakukan absensi hari ini. Silakan absen terlebih dahulu sebelum transaksi.",
+      });
+    }
+
+    const absensiDateKey = getDateKeyInTimeZone(hasTodayAttendance.createdAt);
+    if (absensiDateKey !== todayKey) {
+      await transaction.rollback();
+      return res.status(403).json({
+        success: false,
+        message: "Absensi hari ini belum valid untuk transaksi. Silakan lakukan absensi terlebih dahulu.",
       });
     }
 
@@ -260,7 +304,6 @@ const tampilPenjualanByUserId = async (req, res) => {
       });
     }
 
-    // Susun array include secara dinamis untuk mencegah error 'Include unexpected'
     const includeOptions = [];
 
     if (UserModel) {

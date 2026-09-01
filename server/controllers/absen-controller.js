@@ -1,6 +1,18 @@
 const { Absen, User, Karyawan, Outlet } = require("../models");
 const { Op } = require("sequelize");
 
+const formatTimeInTimeZone = (dateValue, timeZone = "Asia/Jakarta") => {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+};
+
 module.exports = {
   submitAbsen: async (req, res) => {
     try {
@@ -57,13 +69,9 @@ module.exports = {
     }
   },
 
-  // Buat halaman admin/karyawan, tab "Absensi Karyawan".
-  // 1 record Absen hari itu = karyawan itu Hadir. Gak ada konsep checkOut/Pulang.
-  // - master  -> lihat semua karyawan
-  // - admin   -> cuma karyawan yang outlet-nya dia (ownerId = req.user.id)
   getAllAbsensi: async (req, res) => {
     try {
-      const dateParam = req.query.date; // format: YYYY-MM-DD, opsional
+      const dateParam = req.query.date;
       const targetDate = dateParam ? new Date(dateParam) : new Date();
 
       const startOfDay = new Date(targetDate);
@@ -106,12 +114,7 @@ module.exports = {
           id: k.id,
           name: k.name,
           outletName: k.outlet?.outletName ?? null,
-          jamAbsen: record
-            ? new Date(record.createdAt).toLocaleTimeString("id-ID", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-            : "-",
+          jamAbsen: record ? formatTimeInTimeZone(record.createdAt) : "-",
           status: record ? "Hadir" : "Belum Absen",
           foto: record ? record.foto : null,
         };

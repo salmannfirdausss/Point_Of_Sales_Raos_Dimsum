@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
+import Swal from "sweetalert2";
 import KasirHeader from "@/components/kasir/KasirHeader";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:2000";
@@ -130,15 +131,24 @@ export default function CartPage() {
 
   const handleCheckout = async () => {
     if (cart.length === 0) {
-      alert("Keranjang masih kosong");
+      await Swal.fire({
+        icon: "warning",
+        title: "Keranjang masih kosong",
+        text: "Tambahkan produk terlebih dahulu sebelum checkout.",
+        confirmButtonColor: "#E52424",
+      });
       return;
     }
 
-    // Ambil token kasir dari localStorage
     const token = localStorage.getItem("token");
 
     if (!token) {
-      alert("Sesi kasir tidak ditemukan. Silakan login kembali.");
+      await Swal.fire({
+        icon: "error",
+        title: "Sesi kasir tidak ditemukan",
+        text: "Silakan login kembali untuk melanjutkan transaksi.",
+        confirmButtonColor: "#E52424",
+      });
       router.push("/login");
       return;
     }
@@ -154,19 +164,17 @@ export default function CartPage() {
 
       const response = await axios.post(`${API_URL}/api/penjualan/checkout`, payload, {
         headers: {
-          Authorization: `Bearer ${token}`, // Mempassing token ke backend
+          Authorization: `Bearer ${token}`,
         },
       });
 
       if (response.data.success) {
-        // 1. Set data transaksi berhasil untuk menampilkan modal sukses
         setSuccessData({
           invoice: response.data.data.invoice,
           totalBayar: response.data.data.totalBayar,
           metodePembayaran: response.data.data.metodePembayaran,
         });
 
-        // 2. Bersihkan keranjang belanja di state & localStorage
         setCart([]);
         localStorage.removeItem("kasir-cart");
         window.dispatchEvent(new Event("cart-updated"));
@@ -174,7 +182,22 @@ export default function CartPage() {
     } catch (error: any) {
       console.error("Checkout gagal:", error);
       const message = error.response?.data?.message || "Gagal memproses transaksi. Coba lagi.";
-      alert(message);
+
+      const isAbsenceBlocked = message.toLowerCase().includes("absensi");
+
+      const result = await Swal.fire({
+        icon: "warning",
+        title: isAbsenceBlocked ? "Absensi belum valid" : "Transaksi gagal",
+        text: message,
+        confirmButtonText: isAbsenceBlocked ? "Ke Halaman Absensi" : "OK",
+        showCancelButton: isAbsenceBlocked,
+        cancelButtonText: "Tutup",
+        confirmButtonColor: "#E52424",
+      });
+
+      if (isAbsenceBlocked && result.isConfirmed) {
+        router.push("/absen");
+      }
     } finally {
       setIsSubmitting(false);
     }

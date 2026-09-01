@@ -60,7 +60,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.replace("/login");
   };
 
-  const navItems = [
+  type NavIcon = (props: { active: boolean }) => React.ReactNode;
+
+  const navItems: Array<{ label: string; path: string; Icon: NavIcon }> = [
     { label: "Dashboard", path: "/admin", Icon: Icons.Dashboard },
     { label: "Karyawan", path: "/admin/karyawan", Icon: Icons.Karyawan },
     { label: "Tenant", path: "/admin/tenant", Icon: Icons.Tenant },
@@ -68,7 +70,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { label: "Produk", path: "/admin/produk", Icon: Icons.Produk },
   ];
 
-  
+  const mobileNavItems: Array<{
+    label: string;
+    path?: string;
+    Icon: NavIcon;
+    isLogout?: boolean;
+  }> = [
+    ...navItems,
+    {
+      label: "Keluar",
+      Icon: ({ active }: { active: boolean }) => (
+        <svg className={`w-5 h-5 ${active ? "text-[#E52424]" : "text-zinc-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6A2.25 2.25 0 005.25 5.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 15l3-3m0 0l-3-3m3 3H3" />
+        </svg>
+      ),
+      isLogout: true,
+    },
+  ];
+
   return (
     <RoleGuard allowedRoles={["admin", "master"]}>
       <div className="w-full min-h-screen bg-[#F5F6F8] text-[#212121] font-sans antialiased flex flex-col md:flex-row">
@@ -135,8 +154,24 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </main>
 
         {/* MOBILE BOTTOM NAVIGATION (Visible < md) */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 w-full bg-white border-t border-zinc-200 h-[64px] flex items-center justify-around z-50 px-4">
-          {navItems.map(({ label, path, Icon }) => {
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 w-full bg-white border-t border-zinc-200 h-[64px] flex items-center justify-around z-50 px-2">
+          {mobileNavItems.map(({ label, path, Icon, isLogout }) => {
+            if (isLogout) {
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={handleLogout}
+                  className="flex flex-col items-center justify-center flex-1 h-full py-1 text-zinc-400"
+                >
+                  <Icon active={false} />
+                  <span className="text-[11px] mt-1 tracking-tight font-medium">{label}</span>
+                </button>
+              );
+            }
+
+            if (!path) return null;
+
             const isActive = pathname === path;
             return (
               <Link
