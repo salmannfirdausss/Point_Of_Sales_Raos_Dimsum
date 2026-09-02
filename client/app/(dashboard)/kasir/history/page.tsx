@@ -29,6 +29,14 @@ interface TransaksiGroup {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
+const getJakartaDateKey = (dateValue: string | Date) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(dateValue));
+
 export default function KasirHistoryPage() {
   const [transaksiList, setTransaksiList] = useState<TransaksiGroup[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -60,7 +68,11 @@ export default function KasirHistoryPage() {
 
       if (response.data.success) {
         const rawData = response.data.data || [];
-        const grouped = rawData.reduce(
+        const todayKey = getJakartaDateKey(new Date());
+        const todayData = rawData.filter(
+          (item: any) => item.createdAt && getJakartaDateKey(item.createdAt) === todayKey,
+        );
+        const grouped = todayData.reduce(
           (acc: Record<string, TransaksiGroup>, item: any) => {
             const inv = item.invoice;
             if (!acc[inv]) {

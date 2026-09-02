@@ -16,7 +16,17 @@ interface AbsenItem {
   createdAt: string;
 }
 
+type AttendanceType = "Masuk" | "Keberangkatan";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+
+const getJakartaDateKey = (dateValue: string | Date) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(dateValue));
 
 const getImageUrl = (path?: string) => {
   if (!path) return "";
@@ -36,6 +46,7 @@ export default function AbsenPage() {
 
   // State Riwayat & Modal
   const [hasAbsendedToday, setHasAbsendedToday] = useState(false);
+  const [attendanceType, setAttendanceType] = useState<AttendanceType>("Keberangkatan");
   const [historyList, setHistoryList] = useState<AbsenItem[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
@@ -102,11 +113,14 @@ export default function AbsenPage() {
         setHistoryList(data);
 
         // Cek apakah ada record absen hari ini
-        const todayStr = new Date().toDateString();
+        const todayStr = getJakartaDateKey(new Date());
         const alreadyAbsen = data.some((item) => {
           if (!item.createdAt) return false;
           const itemDate = new Date(item.createdAt);
-          return itemDate.toDateString() === todayStr;
+          return (
+            getJakartaDateKey(itemDate) === todayStr &&
+            (item.tipe || "Masuk") === attendanceType
+          );
         });
 
         setHasAbsendedToday(alreadyAbsen);
@@ -123,7 +137,7 @@ export default function AbsenPage() {
     } finally {
       setIsFetchingStatus(false);
     }
-  }, [startCamera]);
+  }, [attendanceType, startCamera]);
 
   useEffect(() => {
     void Promise.resolve().then(fetchHistoryAndCheckToday);
@@ -177,6 +191,7 @@ export default function AbsenPage() {
       const file = dataURLtoFile(capturedImage, `absen-${Date.now()}.jpg`);
       const formData = new FormData();
       formData.append("foto", file);
+      formData.append("tipe", attendanceType);
 
       const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
 
@@ -184,7 +199,6 @@ export default function AbsenPage() {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
-          // Jangan set Content-Type secara manual untuk FormData
         },
         body: formData,
       });
@@ -224,13 +238,15 @@ export default function AbsenPage() {
   // Filter riwayat khusus bulan ini
   const currentMonthHistory = historyList.filter((item) => {
     if (!item.createdAt) return false;
-    const itemDate = new Date(item.createdAt);
-    const now = new Date();
-    return (
-      itemDate.getMonth() === now.getMonth() &&
-      itemDate.getFullYear() === now.getFullYear()
-    );
+    return getJakartaDateKey(item.createdAt) === getJakartaDateKey(new Date());
   });
+
+  const hasDepartureToday = historyList.some(
+    (item) =>
+      item.createdAt &&
+      getJakartaDateKey(item.createdAt) === getJakartaDateKey(new Date()) &&
+      item.tipe === "Keberangkatan",
+  );
 
   return (
     <RoleGuard allowedRoles={["kasir"]}>
@@ -244,11 +260,37 @@ export default function AbsenPage() {
           <div>
             <p className="text-xs text-zinc-400">POS Raos Dimsum</p>
             <h2 className="text-base font-bold text-[#212121]">
-              {hasAbsendedToday ? "Status Absensi Hari Ini" : "Presensi Masuk"}
+              {hasAbsendedToday
+                ? `Status ${attendanceType} Hari Ini`
+                : `Presensi ${attendanceType}`}
             </h2>
           </div>
           <div className="bg-[#E52424]/10 text-[#E52424] font-mono text-xs font-semibold px-3 py-1.5 rounded-full border border-[#E52424]/20">
             {currentTime || "--:--:--"}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-zinc-200 p-3 shadow-sm">
+          <p className="text-xs font-bold text-zinc-700 mb-2">Jenis Absensi</p>
+          <div className="grid grid-cols-2 gap-2">
+            {(["Keberangkatan", "Masuk"] as AttendanceType[]).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => {
+                  setAttendanceType(type);
+                  setCapturedImage(null);
+                }}
+                disabled={type === "Masuk" && !hasDepartureToday}
+                className={`py-2.5 rounded-xl text-xs font-bold border transition-colors ${
+                  attendanceType === type
+                    ? "bg-[#E52424] text-white border-[#E52424]"
+                    : "bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                }`}
+              >
+                {type}
+              </button>
+            ))}
           </div>
         </div>
 

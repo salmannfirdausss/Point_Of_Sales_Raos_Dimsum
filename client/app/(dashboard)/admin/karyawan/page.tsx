@@ -49,9 +49,11 @@ type AbsensiItem = {
   id: number;
   name: string;
   outletName: string | null;
-  jamAbsen: string;
+  jamKeberangkatan: string;
+  jamMasuk: string;
   status: "Hadir" | "Belum Absen";
-  foto: string | null;
+  fotoMasuk: string | null;
+  fotoKeberangkatan: string | null;
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
@@ -449,38 +451,66 @@ export default function KaryawanPage() {
             ) : (
               <div className="divide-y divide-zinc-100">
                 {absensiList.map((item) => (
-                  <div key={item.id} className="py-3.5 flex justify-between items-center gap-3">
-                    <div>
-                      <p className="text-xs font-bold text-[#212121]">{item.name}</p>
-                      <p className="text-[11px] text-zinc-400 mt-0.5">
-                        {item.outletName ?? "-"}
-                        {item.jamAbsen !== "-" && <span> · {item.jamAbsen} WIB</span>}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {item.status === "Hadir" && item.foto && (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedPhoto(getImageUrl(item.foto))}
-                          className="px-2.5 py-1.5 bg-zinc-100 hover:bg-[#E52424]/10 hover:text-[#E52424] text-zinc-700 text-[10px] font-semibold rounded-lg transition-colors flex items-center gap-1"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                          Bukti Foto
-                        </button>
-                      )}
-                      <span
-                        className={`text-[10px] px-3 py-1 rounded-full font-semibold ${
-                          item.status === "Hadir"
-                            ? "bg-emerald-50 text-emerald-600"
-                            : "bg-zinc-100 text-zinc-500"
-                        }`}
+                  <div key={item.id} className="py-3.5 flex justify-between items-center gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-[#212121] truncate">{item.name}</p>
+                  <p className="text-[11px] text-zinc-400 mt-0.5 truncate">{item.outletName ?? "-"}</p>
+                  {item.status === "Belum Absen" ? (
+                    <p className="text-[11px] text-zinc-400 mt-0.5 truncate">
+                      Belum ada absensi hari ini
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-zinc-500 mt-0.5 truncate">
+                      Keberangkatan {item.jamKeberangkatan} · Masuk {item.jamMasuk} WIB
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span
+                    className={`text-[10px] px-2.5 py-1 rounded-full font-semibold ${
+                      item.status === "Hadir"
+                        ? "bg-emerald-50 text-emerald-600"
+                        : "bg-zinc-100 text-zinc-500"
+                    }`}
+                  >
+                    {item.status}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {item.fotoKeberangkatan && (
+                      <button
+                        type="button"
+                        title="Lihat foto keberangkatan"
+                        aria-label={`Lihat foto keberangkatan ${item.name}`}
+                        onClick={() => setSelectedPhoto(getImageUrl(item.fotoKeberangkatan))}
+                        className="w-8 h-8 inline-flex items-center justify-center bg-zinc-100 hover:bg-[#E52424]/10 hover:text-[#E52424] text-zinc-600 rounded-lg transition-colors"
                       >
-                        {item.status}
-                      </span>
-                    </div>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </button>
+                    )}
+                    {item.fotoMasuk && (
+                      <button
+                        type="button"
+                        title="Lihat foto masuk"
+                        aria-label={`Lihat foto masuk ${item.name}`}
+                        onClick={() => setSelectedPhoto(getImageUrl(item.fotoMasuk))}
+                        className="w-8 h-8 inline-flex items-center justify-center bg-zinc-100 hover:bg-[#E52424]/10 hover:text-[#E52424] text-zinc-600 rounded-lg transition-colors"
+                      >
+                        <svg className="hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2 2z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M14 4h5a2 2 0 012 2v12a2 2 0 01-2 2h-5M10 12h10m0 0l-4-4m4 4l-4 4M4 4h5v16H4a2 2 0 01-2-2V6a2 2 0 012-2z" />
+                          <circle cx="7" cy="8" r="1.8" stroke="currentColor" strokeWidth="1.8" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 10l-1 4 2 2 2 4m-3-5l-3 1m5-1l3 2m-5 3l-2 2m5-2l2 1M12 4h7a2 2 0 012 2v12a2 2 0 01-2 2h-7M12 4v7" />
+                        </svg>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2 2 2 2z" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
+                </div>
+              </div>
                 ))}
               </div>
             )}
@@ -501,7 +531,7 @@ export default function KaryawanPage() {
                   &times;
                 </button>
               </div>
-              <div className="relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden">
+              <div className="relative aspect-3/4 bg-zinc-900 rounded-xl overflow-hidden">
                 <img src={selectedPhoto} alt="Bukti Absen" className="w-full h-full object-cover" />
               </div>
               <button

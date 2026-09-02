@@ -1,6 +1,17 @@
 const { Absen, User, Karyawan, Outlet } = require("../models");
 const { Op } = require("sequelize");
 
+const getJakartaDayRange = (dateValue = new Date()) => {
+  const dateKey = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+  }).format(dateValue);
+
+  return {
+    start: new Date(`${dateKey}T00:00:00+07:00`),
+    end: new Date(`${dateKey}T23:59:59.999+07:00`),
+  };
+};
+
 const formatTimeInTimeZone = (dateValue, timeZone = "Asia/Jakarta") => {
   const date = new Date(dateValue);
   if (Number.isNaN(date.getTime())) return "-";
@@ -25,11 +36,47 @@ module.exports = {
         });
       }
 
+      const tipe = req.body.tipe === "Keberangkatan" ? "Keberangkatan" : "Masuk";
+      const { start: startOfDay, end: endOfDay } = getJakartaDayRange();
+
+      if (tipe === "Masuk") {
+        const departureAttendance = await Absen.findOne({
+          where: {
+            userId,
+            tipe: "Keberangkatan",
+            createdAt: { [Op.between]: [startOfDay, endOfDay] },
+          },
+        });
+
+        if (!departureAttendance) {
+          return res.status(400).json({
+            status: false,
+            message: "Absensi keberangkatan harus dilakukan terlebih dahulu.",
+          });
+        }
+      }
+
+      const existingAttendance = await Absen.findOne({
+        where: {
+          userId,
+          tipe,
+          createdAt: { [Op.between]: [startOfDay, endOfDay] },
+        },
+      });
+
+      if (existingAttendance) {
+        return res.status(409).json({
+          status: false,
+          message: `Absensi ${tipe.toLowerCase()} hari ini sudah tercatat.`,
+        });
+      }
+
       const fotoUrl = `/public/absen/${req.file.filename}`;
 
       const newAbsen = await Absen.create({
         userId,
         foto: fotoUrl,
+        tipe,
       });
 
       res.status(201).json({
@@ -72,12 +119,8 @@ module.exports = {
   getAllAbsensi: async (req, res) => {
     try {
       const dateParam = req.query.date;
-      const targetDate = dateParam ? new Date(dateParam) : new Date();
-
-      const startOfDay = new Date(targetDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(targetDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      const targetDate = dateParam ? new Date(`${dateParam}T12:00:00+07:00`) : new Date();
+      const { start: startOfDay, end: endOfDay } = getJakartaDayRange(targetDate);
 
       const outletFilter =
         req.user.role === "master" ? {} : { userId: req.user.id };
@@ -108,15 +151,19 @@ module.exports = {
       });
 
       const result = karyawanList.map((k) => {
-        const record = absensiHariIni.find((a) => a.userId === k.account?.id);
+        const records = absensiHariIni.filter((a) => a.userId === k.account?.id);
+        const masuk = records.find((record) => (record.tipe || "Masuk") === "Masuk");
+        const keberangkatan = records.find((record) => record.tipe === "Keberangkatan");
 
         return {
           id: k.id,
           name: k.name,
           outletName: k.outlet?.outletName ?? null,
-          jamAbsen: record ? formatTimeInTimeZone(record.createdAt) : "-",
-          status: record ? "Hadir" : "Belum Absen",
-          foto: record ? record.foto : null,
+          jamMasuk: masuk ? formatTimeInTimeZone(masuk.createdAt) : "-",
+          fotoMasuk: masuk ? masuk.foto : null,
+          jamKeberangkatan: keberangkatan ? formatTimeInTimeZone(keberangkatan.createdAt) : "-",
+          fotoKeberangkatan: keberangkatan ? keberangkatan.foto : null,
+          status: masuk || keberangkatan ? "Hadir" : "Belum Absen",
         };
       });
 

@@ -7,6 +7,7 @@ const loginLimiter = rateLimit({
     status: false,
     message: "Terlalu banyak percobaan login. Coba lagi dalam 15 menit.",
   },
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
 });
