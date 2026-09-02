@@ -37,6 +37,8 @@ const getImageUrl = (path?: string) => {
 export default function AbsenPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const cameraRequestRef = useRef(0);
 
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -67,27 +69,39 @@ export default function AbsenPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const stopCamera = useCallback(() => {
+    cameraRequestRef.current += 1;
+    const currentStream = streamRef.current || videoRef.current?.srcObject;
+    if (currentStream instanceof MediaStream) {
+      currentStream.getTracks().forEach((track) => track.stop());
+    }
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }, []);
+
   const startCamera = useCallback(async () => {
+    const requestId = cameraRequestRef.current + 1;
+    cameraRequestRef.current = requestId;
+    stopCamera();
     setCameraError(null);
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false,
       });
-      if (videoRef.current) videoRef.current.srcObject = mediaStream;
+      if (requestId !== cameraRequestRef.current || !videoRef.current) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      streamRef.current = mediaStream;
+      videoRef.current.srcObject = mediaStream;
     } catch (err) {
+      if (requestId !== cameraRequestRef.current) return;
       console.error("Gagal mengakses kamera:", err);
       setCameraError("Akses kamera ditolak atau perangkat tidak ditemukan.");
     }
-  }, []);
-
-  const stopCamera = useCallback(() => {
-    const currentStream = videoRef.current?.srcObject;
-    if (currentStream instanceof MediaStream) {
-      currentStream.getTracks().forEach((track) => track.stop());
-      if (videoRef.current) videoRef.current.srcObject = null;
-    }
-  }, []);
+  }, [stopCamera]);
 
   // Cek Riwayat Absen & Status Hari Ini
   const fetchHistoryAndCheckToday = useCallback(async () => {
