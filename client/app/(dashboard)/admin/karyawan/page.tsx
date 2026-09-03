@@ -327,7 +327,10 @@ export default function KaryawanPage() {
         });
       }
 
-      await fetchKaryawan();
+      // Refresh dua-duanya: daftar karyawan DAN daftar absensi.
+      // Kalau cuma fetchKaryawan() doang, section Absensi gak ikut update
+      // sampai halaman di-refresh manual (karyawan baru gak nongol di situ).
+      await Promise.all([fetchKaryawan(), fetchAbsensi()]);
       closeForm();
     } catch (error: unknown) {
       console.error("Gagal menyimpan karyawan:", error);
@@ -351,7 +354,7 @@ export default function KaryawanPage() {
 
     try {
       await api.delete(`/api/karyawan/${id}`);
-      await fetchKaryawan();
+      await Promise.all([fetchKaryawan(), fetchAbsensi()]);
     } catch (error: unknown) {
       console.error("Gagal menghapus karyawan:", error);
       alert(getApiErrorMessage(error, "Gagal menghapus karyawan."));
@@ -497,14 +500,8 @@ export default function KaryawanPage() {
                         onClick={() => setSelectedPhoto(getImageUrl(item.fotoMasuk))}
                         className="w-8 h-8 inline-flex items-center justify-center bg-zinc-100 hover:bg-[#E52424]/10 hover:text-[#E52424] text-zinc-600 rounded-lg transition-colors"
                       >
-                        <svg className="hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2 2z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M14 4h5a2 2 0 012 2v12a2 2 0 01-2 2h-5M10 12h10m0 0l-4-4m4 4l-4 4M4 4h5v16H4a2 2 0 01-2-2V6a2 2 0 012-2z" />
-                          <circle cx="7" cy="8" r="1.8" stroke="currentColor" strokeWidth="1.8" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M7 10l-1 4 2 2 2 4m-3-5l-3 1m5-1l3 2m-5 3l-2 2m5-2l2 1M12 4h7a2 2 0 012 2v12a2 2 0 01-2 2h-7M12 4v7" />
-                        </svg>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2 2 2 2z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
                       </button>
                     )}
