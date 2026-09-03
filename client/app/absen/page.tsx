@@ -18,7 +18,7 @@ interface AbsenItem {
 
 type AttendanceType = "Masuk" | "Keberangkatan";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:2000";
 
 const getJakartaDateKey = (dateValue: string | Date) =>
   new Intl.DateTimeFormat("en-CA", {
@@ -37,8 +37,10 @@ const getImageUrl = (path?: string) => {
 export default function AbsenPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const displayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cameraRequestRef = useRef(0);
+  const animationFrameRef = useRef<number | null>(null);
 
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -82,28 +84,56 @@ export default function AbsenPage() {
   const startCamera = useCallback(async () => {
     const requestId = cameraRequestRef.current + 1;
     cameraRequestRef.current = requestId;
-    stopCamera();
+    
+    // Stop previous stream first
+    const prevStream = streamRef.current || videoRef.current?.srcObject;
+    if (prevStream instanceof MediaStream) {
+      prevStream.getTracks().forEach((track) => track.stop());
+    }
+    
     setCameraError(null);
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false,
       });
+      
       if (requestId !== cameraRequestRef.current || !videoRef.current) {
         mediaStream.getTracks().forEach((track) => track.stop());
         return;
       }
 
       streamRef.current = mediaStream;
-      videoRef.current.srcObject = mediaStream;
+      const video = videoRef.current;
+      video.srcObject = mediaStream;
+      
+      // Wait for video to be ready then play
+      const playVideo = () => {
+        video.play()
+          .then(() => {
+          })
+          .catch((err) => {
+            // Retry after a short delay
+            setTimeout(playVideo, 500);
+          });
+      };
+
+      if (video.readyState >= video.HAVE_FUTURE_DATA) {
+        // Video siap langsung
+        playVideo();
+      } else {
+        // Tunggu sampai video siap
+        video.onloadedmetadata = () => {
+          playVideo();
+        };
+      }
     } catch (err) {
       if (requestId !== cameraRequestRef.current) return;
-      console.error("Gagal mengakses kamera:", err);
       setCameraError("Akses kamera ditolak atau perangkat tidak ditemukan.");
     }
-  }, [stopCamera]);
+  }, []);
 
-  // Cek Riwayat Absen & Status Hari Ini
+  // Cek Riwayat Absen & Status Hari Ini (TANPA start camera)
   const fetchHistoryAndCheckToday = useCallback(async () => {
     setIsFetchingStatus(true);
     try {
@@ -138,51 +168,166 @@ export default function AbsenPage() {
         });
 
         setHasAbsendedToday(alreadyAbsen);
-        if (!alreadyAbsen) {
-          startCamera();
-        }
       } else {
-        console.warn("Gagal mengambil riwayat:", result?.message || res.statusText);
-        startCamera();
       }
     } catch (error) {
-      console.error("Gagal mengambil riwayat absensi:", error);
-      startCamera();
     } finally {
       setIsFetchingStatus(false);
     }
-  }, [attendanceType, startCamera]);
+  }, [attendanceType]);
 
+  // Initialize camera setelah status absensi selesai dicek DAN video element sudah ter-render.
+  // (video element cuma muncul kalau !isFetchingStatus && !hasAbsendedToday, jadi effect
+  // ini perlu nunggu dua state itu, bukan cuma jalan sekali pas mount)
   useEffect(() => {
-    void Promise.resolve().then(fetchHistoryAndCheckToday);
-    return () => {
-      stopCamera();
+    if (isFetchingStatus || hasAbsendedToday) {
+      return;
+    }
+    let requestId = 0;
+    
+    const initCamera = async () => {
+      requestId = cameraRequestRef.current + 1;
+      cameraRequestRef.current = requestId;
+      
+      const prevStream = streamRef.current || videoRef.current?.srcObject;
+      if (prevStream instanceof MediaStream) {
+        prevStream.getTracks().forEach((track) => track.stop());
+      }
+      
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      
+      setCameraError(null);
+      try {
+        const mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false,
+        });
+        
+        if (requestId !== cameraRequestRef.current || !videoRef.current) {
+          mediaStream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = mediaStream;
+        const video = videoRef.current;
+        video.srcObject = mediaStream;
+        
+        // Function untuk render video ke canvas (dengan flip horizontal)
+        const renderVideoToCanvas = () => {
+          if (!displayCanvasRef.current || !videoRef.current) return;
+          
+          const canvas = displayCanvasRef.current;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          
+          // Set canvas ukuran
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          
+          // Flip horizontal
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+          
+          // Draw video frame
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
+          // Continue animation
+          animationFrameRef.current = requestAnimationFrame(renderVideoToCanvas);
+        };
+        
+        const playVideo = () => {
+
+          video.play()
+            .then(() => {
+              // Start canvas render loop
+              renderVideoToCanvas();
+            })
+            .catch((err) => {
+              setTimeout(playVideo, 500);
+            });
+        };
+
+        if (video.readyState >= video.HAVE_FUTURE_DATA) {
+          playVideo();
+        } else {
+          video.onloadedmetadata = () => {
+            playVideo();
+          };
+        }
+      } catch (err) {
+        if (requestId !== cameraRequestRef.current) return;
+        setCameraError("Akses kamera ditolak atau perangkat tidak ditemukan.");
+      }
     };
-  }, [fetchHistoryAndCheckToday, stopCamera]);
+    
+    initCamera();
+
+    return () => {
+      cameraRequestRef.current += 1;
+      
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      
+      const currentStream = streamRef.current || videoRef.current?.srcObject;
+      if (currentStream instanceof MediaStream) {
+        currentStream.getTracks().forEach((track) => track.stop());
+      }
+      streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
+    };
+  }, [isFetchingStatus, hasAbsendedToday]); // Re-run begitu video element ter-render (status udah siap)
+
+  // Fetch history ketika attendance type berubah
+  useEffect(() => {
+    const initHistory = async () => {
+      await fetchHistoryAndCheckToday();
+    };
+    initHistory();
+  }, [attendanceType, fetchHistoryAndCheckToday]);
 
   const takePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
-
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-        setCapturedImage(dataUrl);
-        stopCamera();
+    if (displayCanvasRef.current) {
+      const displayCanvas = displayCanvasRef.current;
+      const dataUrl = displayCanvas.toDataURL("image/jpeg", 0.85);
+      setCapturedImage(dataUrl);
+      
+      // Stop camera animation frame
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
       }
     }
   };
 
   const resetPhoto = () => {
     setCapturedImage(null);
-    startCamera();
+    // Restart animation frame
+    if (videoRef.current && displayCanvasRef.current) {
+      const renderVideoToCanvas = () => {
+        if (!displayCanvasRef.current || !videoRef.current) return;
+        
+        const canvas = displayCanvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        
+        const video = videoRef.current;
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        animationFrameRef.current = requestAnimationFrame(renderVideoToCanvas);
+      };
+      
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      renderVideoToCanvas();
+    }
   };
 
   const dataURLtoFile = (dataurl: string, filename: string): File => {
@@ -237,7 +382,6 @@ export default function AbsenPage() {
         });
       }
     } catch (error) {
-      console.error("Error submitting absen:", error);
       await Swal.fire({
         icon: "error",
         title: "Terjadi kesalahan",
@@ -266,6 +410,7 @@ export default function AbsenPage() {
     <RoleGuard allowedRoles={["kasir"]}>
       <main className="min-h-screen bg-[#F5F5F5] pb-24">
       <canvas ref={canvasRef} className="hidden" />
+      <canvas ref={displayCanvasRef} className="hidden" />
       <KasirHeader title="Absensi Kasir" />
 
       <div className="max-w-md mx-auto px-4 py-5 space-y-4">
@@ -423,13 +568,20 @@ export default function AbsenPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="relative w-full h-full flex items-center justify-center">
+                  <div className="relative w-full h-full flex items-center justify-center bg-black">
                     <video
                       ref={videoRef}
                       autoPlay
                       playsInline
                       muted
-                      className="w-full h-full object-cover -scale-x-100"
+                      disablePictureInPicture
+                      onError={() => setCameraError("Gagal memuat stream kamera. Periksa izin kamera.")}
+                      className="hidden"
+                    />
+                    <canvas
+                      ref={displayCanvasRef}
+                      className="w-full h-full object-cover"
+                      style={{ display: "block" }}
                     />
                     <div className="absolute inset-0 pointer-events-none border-2 border-dashed border-white/40 rounded-xl m-6 flex items-center justify-center">
                       <span className="text-[11px] text-white/90 bg-black/50 px-3 py-1 rounded-full backdrop-blur-md font-medium">
