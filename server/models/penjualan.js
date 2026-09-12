@@ -59,7 +59,7 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.INTEGER,
       allowNull: true,
       references: {
-        model: 'users', // Nama tabel user di MySQL
+        model: 'Users', // Nama tabel user di MySQL
         key: 'id'
       }
     },
