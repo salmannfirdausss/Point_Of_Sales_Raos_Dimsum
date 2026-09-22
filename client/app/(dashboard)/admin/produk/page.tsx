@@ -22,6 +22,7 @@ interface Topping {
 }
 
 interface HargaProduk {
+  id?: number | string;
   qty: number | string;
   harga: number | string;
 }
@@ -31,6 +32,7 @@ interface Product {
   namaProduk: string;
   categoryId: number | string;
   outletId?: number | string | null;
+  outletIds?: string[] | string | null;
   tenantId?: number | string | null;
   keterangan?: string;
   produkImg?: string;
@@ -59,12 +61,12 @@ export default function AdminPage() {
     name: "",
   });
 
-  // State Form Produk (outletId tunggal atau kosong untuk Semua Outlet)
+  // State Form Produk (Multi Outlet support: outletIds)
   const [prodForm, setProdForm] = useState<{
     id: string | number;
     namaProduk: string;
     categoryId: string | number;
-    outletId: string | number;
+    outletIds: (string | number)[];
     keterangan: string;
     toppings: Topping[];
     hargaproduks: HargaProduk[];
@@ -72,7 +74,7 @@ export default function AdminPage() {
     id: "",
     namaProduk: "",
     categoryId: "",
-    outletId: "", // "" artinya Semua Outlet (outletId = null)
+    outletIds: [], // Empty array = Semua Outlet
     keterangan: "",
     toppings: [{ namaTopping: "", harga: "" }],
     hargaproduks: [{ qty: "", harga: "" }],
@@ -110,7 +112,6 @@ export default function AdminPage() {
     try {
       const res = await api.get("/api/outlets/");
       const result = res.data;
-
       if (result.success) {
         setTenants(result.data);
       } else {
@@ -155,11 +156,10 @@ export default function AdminPage() {
         resetCatForm();
         loadCategories();
       } else {
-        console.error("Gagal menyimpan kategori:", result.message);
         showAlert(result.message || "Gagal menyimpan kategori", "error");
       }
     } catch (error) {
-      console.log("Error pada handleCategorySubmit:", error);
+      console.error("Error pada handleCategorySubmit:", error);
       showAlert("Gagal menyimpan kategori", "error");
     } finally {
       setLoading(false);
@@ -182,7 +182,6 @@ export default function AdminPage() {
         showAlert("Kategori berhasil dihapus");
         loadCategories();
       } else {
-        console.error("Gagal menghapus kategori:", result.message);
         showAlert(result.message, "error");
       }
     } catch (error) {
@@ -220,6 +219,28 @@ export default function AdminPage() {
     }
   };
 
+  // Handler Multi-Select Outlet
+  const handleOutletToggle = (outletId: string | number) => {
+    setProdForm((prev) => {
+      const exists = prev.outletIds.includes(String(outletId));
+      if (exists) {
+        return {
+          ...prev,
+          outletIds: prev.outletIds.filter((id) => String(id) !== String(outletId)),
+        };
+      } else {
+        return {
+          ...prev,
+          outletIds: [...prev.outletIds, String(outletId)],
+        };
+      }
+    });
+  };
+
+  const handleSelectAllOutlets = () => {
+    setProdForm((prev) => ({ ...prev, outletIds: [] }));
+  };
+
   const handleProductSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!prodForm.categoryId) {
@@ -233,10 +254,10 @@ export default function AdminPage() {
 
       formData.append("namaProduk", prodForm.namaProduk);
       formData.append("categoryId", String(prodForm.categoryId));
-      
-      // Kirim outletId jika ada, jika tidak kosongkan ("") agar tersimpan null di backend
-      formData.append("outletId", prodForm.outletId ? String(prodForm.outletId) : "");
       formData.append("keterangan", prodForm.keterangan);
+
+      // Kirim Array outletIds sebagai JSON String
+      formData.append("outletIds", JSON.stringify(prodForm.outletIds));
 
       if (imageFile) {
         formData.append("produkImg", imageFile);
@@ -252,7 +273,11 @@ export default function AdminPage() {
 
       const formattedHarga = prodForm.hargaproduks
         .filter((h) => h.qty && h.harga)
-        .map((h) => ({ qty: Number(h.qty), harga: Number(h.harga) || 0 }));
+        .map((h) => ({
+          ...(h.id ? { id: h.id } : {}),
+          qty: Number(h.qty),
+          harga: Number(h.harga) || 0,
+        }));
       formData.append("hargaproduks", JSON.stringify(formattedHarga));
 
       const res = prodForm.id
@@ -265,7 +290,6 @@ export default function AdminPage() {
         resetProdForm();
         loadProducts();
       } else {
-        console.error("Gagal menyimpan produk:", result.message || result);
         showAlert(result.message || "Gagal menyimpan produk", "error");
       }
     } catch (error) {
@@ -284,7 +308,7 @@ export default function AdminPage() {
       id: "",
       namaProduk: "",
       categoryId: "",
-      outletId: "",
+      outletIds: [],
       keterangan: "",
       toppings: [{ namaTopping: "", harga: "" }],
       hargaproduks: [{ qty: "", harga: "" }],
@@ -294,20 +318,31 @@ export default function AdminPage() {
   };
 
   const handleEditProduct = (prod: Product) => {
-    // Cari outletId dari objek relasi jika tidak langsung tersedia
-    const extractedOutletId = prod.outletId 
-      ? String(prod.outletId)
-      : prod.outlet?.id 
-      ? String(prod.outlet.id)
-      : prod.tenant?.id 
-      ? String(prod.tenant.id)
-      : (prod.tenants && prod.tenants.length > 0 ? String(prod.tenants[0].id) : "");
+    let extractedOutletIds: string[] = [];
+
+    if (prod.outletIds) {
+      if (typeof prod.outletIds === "string") {
+        try {
+          extractedOutletIds = JSON.parse(prod.outletIds).map(String);
+        } catch (e) {
+          extractedOutletIds = [];
+        }
+      } else if (Array.isArray(prod.outletIds)) {
+        extractedOutletIds = prod.outletIds.map(String);
+      }
+    } else if (prod.outletId) {
+      extractedOutletIds = [String(prod.outletId)];
+    } else if (prod.outlet?.id) {
+      extractedOutletIds = [String(prod.outlet.id)];
+    } else if (prod.tenants && prod.tenants.length > 0) {
+      extractedOutletIds = prod.tenants.map((t) => String(t.id));
+    }
 
     setProdForm({
       id: prod.id,
       namaProduk: prod.namaProduk,
       categoryId: prod.categoryId || "",
-      outletId: extractedOutletId,
+      outletIds: extractedOutletIds,
       keterangan: prod.keterangan || "",
       toppings: prod.toppings?.length
         ? prod.toppings
@@ -338,7 +373,6 @@ export default function AdminPage() {
         showAlert("Produk berhasil dihapus");
         loadProducts();
       } else {
-        console.error("Gagal menghapus produk:", result.message);
         showAlert(result.message, "error");
       }
     } catch (error) {
@@ -398,6 +432,56 @@ export default function AdminPage() {
     }
   };
 
+  // Helper Render Badges Outlet di Tabel
+  const renderOutletBadges = (prod: Product) => {
+    let ids: string[] = [];
+
+    if (prod.outletIds) {
+      if (typeof prod.outletIds === "string") {
+        try {
+          ids = JSON.parse(prod.outletIds).map(String);
+        } catch (e) {
+          ids = [];
+        }
+      } else if (Array.isArray(prod.outletIds)) {
+        ids = prod.outletIds.map(String);
+      }
+    } else if (prod.outletId) {
+      ids = [String(prod.outletId)];
+    }
+
+    if (ids.length === 0) {
+      return (
+        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+          Semua Outlet
+        </span>
+      );
+    }
+
+    const matchedTenants = tenants.filter((t) => ids.includes(String(t.id)));
+
+    if (matchedTenants.length === 0) {
+      return (
+        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+          Semua Outlet
+        </span>
+      );
+    }
+
+    return (
+      <div className="flex flex-wrap gap-1">
+        {matchedTenants.map((t) => (
+          <span
+            key={t.id}
+            className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200"
+          >
+            {t.outletName || t.namaTenant || `Outlet #${t.id}`}
+          </span>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* HEADER */}
@@ -413,21 +497,19 @@ export default function AdminPage() {
         <div className="flex gap-1 bg-zinc-100 p-1 rounded-xl w-fit">
           <button
             onClick={() => setActiveTab("products")}
-            className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition-all ${
-              activeTab === "products"
+            className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition-all ${activeTab === "products"
                 ? "bg-white text-[#212121] shadow-xs"
                 : "text-zinc-400"
-            }`}
+              }`}
           >
             Produk ({products.length})
           </button>
           <button
             onClick={() => setActiveTab("categories")}
-            className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition-all ${
-              activeTab === "categories"
+            className={`text-xs font-bold px-3.5 py-1.5 rounded-lg transition-all ${activeTab === "categories"
                 ? "bg-white text-[#212121] shadow-xs"
                 : "text-zinc-400"
-            }`}
+              }`}
           >
             Kategori ({categories.length})
           </button>
@@ -436,11 +518,10 @@ export default function AdminPage() {
 
       {alert.message && (
         <div
-          className={`flex items-center px-4 py-3 rounded-2xl border text-xs font-semibold shadow-2xs ${
-            alert.type === "error"
+          className={`flex items-center px-4 py-3 rounded-2xl border text-xs font-semibold shadow-2xs ${alert.type === "error"
               ? "bg-red-50 border-red-100 text-[#E52424]"
               : "bg-emerald-50 border-emerald-100 text-emerald-600"
-          }`}
+            }`}
         >
           {alert.message}
         </div>
@@ -479,28 +560,60 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* DROPDOWN SELECT OUTLET */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-600">
-                  Pilih Outlet / Tenant
-                </label>
-                <select
-                  value={prodForm.outletId}
-                  onChange={(e) =>
-                    setProdForm({ ...prodForm, outletId: e.target.value })
-                  }
-                  className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 text-sm outline-none focus:border-[#E52424] bg-white cursor-pointer"
-                >
-                  <option value="">-- Semua Outlet (Produk Umum) --</option>
-                  {tenants.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.outletName || t.namaTenant || `Outlet #${t.id}`}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-zinc-400">
-                  *Jika memilih "Semua Outlet", produk akan tampil di kasir cabang manapun.
-                </p>
+              {/* MULTI-SELECT CHECKBOX OUTLET (TERPERBAIKI KLIK CARD) */}
+              <div className="space-y-2 border border-zinc-200 p-3.5 rounded-xl bg-zinc-50/50">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-semibold text-zinc-700">
+                    Pilih Outlet / Tenant (Bisa Pilih Banyak)
+                  </label>
+                  <span className="text-[11px] font-bold text-zinc-500">
+                    {prodForm.outletIds.length === 0
+                      ? "Semua Outlet"
+                      : `${prodForm.outletIds.length} Outlet Terpilih`}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 pt-1">
+                  {/* OPTION ALL */}
+                  <label
+                    className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer text-xs font-medium transition-all select-none ${prodForm.outletIds.length === 0
+                        ? "bg-emerald-50 border-emerald-300 text-emerald-800 font-bold shadow-2xs"
+                        : "bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-100"
+                      }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={prodForm.outletIds.length === 0}
+                      onChange={handleSelectAllOutlets}
+                      className="accent-emerald-600 rounded cursor-pointer"
+                    />
+                    <span>-- Semua Outlet (Umum) --</span>
+                  </label>
+
+                  {/* SPECIFIC OUTLETS */}
+                  {tenants.map((t) => {
+                    const isChecked = prodForm.outletIds.includes(String(t.id));
+                    return (
+                      <label
+                        key={t.id}
+                        className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer text-xs font-medium transition-all select-none ${isChecked
+                            ? "bg-red-50 border-red-300 text-[#E52424] font-bold shadow-2xs"
+                            : "bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-100"
+                          }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleOutletToggle(t.id)}
+                          className="accent-[#E52424] rounded cursor-pointer"
+                        />
+                        <span className="truncate">
+                          {t.outletName || t.namaTenant || `Outlet #${t.id}`}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -690,8 +803,8 @@ export default function AdminPage() {
                   {loading
                     ? "Memproses..."
                     : prodForm.id
-                    ? "Simpan Perubahan"
-                    : "Tambah Produk"}
+                      ? "Simpan Perubahan"
+                      : "Tambah Produk"}
                 </button>
                 {prodForm.id && (
                   <button
@@ -780,32 +893,7 @@ export default function AdminPage() {
                           </div>
                         </td>
                         <td className="px-3 py-3.5">
-                          {(() => {
-                            // Mencari nama outlet/tenant dari berbagai bentuk properti relasi
-                            const name =
-                              prod.outlet?.outletName ||
-                              prod.outlet?.namaTenant ||
-                              prod.tenant?.outletName ||
-                              prod.tenant?.namaTenant ||
-                              (prod.tenants && prod.tenants.length > 0
-                                ? prod.tenants.map((t) => t.outletName || t.namaTenant).join(", ")
-                                : null);
-
-                            if (name) {
-                              return (
-                                <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200">
-                                  {name}
-                                </span>
-                              );
-                            }
-
-                            // Jika outletId null / tidak ditemukan, tampilkan badge Semua Outlet
-                            return (
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
-                                Semua Outlet
-                              </span>
-                            );
-                          })()}
+                          {renderOutletBadges(prod)}
                         </td>
                         <td className="px-3 py-3.5 text-zinc-600">
                           {prod.category?.name || "-"}
@@ -818,13 +906,13 @@ export default function AdminPage() {
                         <td className="px-3 py-3.5 text-zinc-600">
                           {prod.hargaproduks?.length
                             ? prod.hargaproduks
-                                .map(
-                                  (h) =>
-                                    `${h.qty}x: Rp ${Number(
-                                      h.harga
-                                    ).toLocaleString("id-ID")}`
-                                )
-                                .join(" | ")
+                              .map(
+                                (h) =>
+                                  `${h.qty}x: Rp ${Number(
+                                    h.harga
+                                  ).toLocaleString("id-ID")}`
+                              )
+                              .join(" | ")
                             : "-"}
                         </td>
                         <td className="px-5 py-3.5 text-right">
@@ -895,8 +983,8 @@ export default function AdminPage() {
                   {loading
                     ? "Memproses..."
                     : catForm.id
-                    ? "Simpan Kategori"
-                    : "Tambah Kategori"}
+                      ? "Simpan Kategori"
+                      : "Tambah Kategori"}
                 </button>
                 {catForm.id && (
                   <button

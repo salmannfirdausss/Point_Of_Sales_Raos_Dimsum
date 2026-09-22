@@ -19,13 +19,21 @@ type HargaProduk = {
   harga: number;
 };
 
+type Tenant = {
+  id: number | string;
+  namaTenant?: string;
+  outletName?: string;
+};
+
 type Product = {
   id: number;
   namaProduk: string;
   keterangan: string | null;
   harga?: number;
   categoryId: number;
-  outletId?: number | null;
+  outletId?: number | string | null;
+  outletIds?: (number | string)[] | string | null;
+  tenants?: Tenant[];
   produkImg: string | null;
   createdAt: string;
   updatedAt: string;
@@ -96,12 +104,6 @@ export default function CategoryPage() {
       const token = localStorage.getItem("token");
       const activeOutletId = getStoredOutletId();
 
-      console.log("========== GET PRODUCTS ==========");
-      console.log("API URL:", API_URL);
-      console.log("Category:", category);
-      console.log("Active Outlet ID:", activeOutletId);
-      console.log("Token tersedia:", !!token);
-
       if (!token) {
         console.error("GET PRODUCTS ERROR: Token tidak ditemukan");
         setProducts([]);
@@ -120,22 +122,47 @@ export default function CategoryPage() {
         }
       );
 
-      console.log("GET PRODUCTS STATUS:", response.status);
-      console.log("GET PRODUCTS RESPONSE:", response.data);
-
       const productData: Product[] = response.data?.data || [];
 
-      // Filter Client-side: tampilkan produk yang sesuai dengan outletId user atau produk global (outletId === null)
+      // Filter Client-side berdasarkan Multi-Outlet / Tenant
       const filteredData = productData.filter((item) => {
         if (activeOutletId === null) return true;
+
+        let parsedOutletIds: string[] = [];
+
+        // Parsing field outletIds jika bertipe stringified JSON
+        if (item.outletIds) {
+          if (typeof item.outletIds === "string") {
+            try {
+              parsedOutletIds = JSON.parse(item.outletIds).map(String);
+            } catch (e) {
+              parsedOutletIds = [];
+            }
+          } else if (Array.isArray(item.outletIds)) {
+            parsedOutletIds = item.outletIds.map(String);
+          }
+        }
+
+        // Cek tenant relasi array
+        const tenantIds = item.tenants ? item.tenants.map((t) => String(t.id)) : [];
+
+        // Produk dianggap UMUM/GLOBAL jika semua field outlet kosong
+        const isGlobalProduct =
+          parsedOutletIds.length === 0 &&
+          tenantIds.length === 0 &&
+          (item.outletId === null || item.outletId === undefined);
+
+        if (isGlobalProduct) return true;
+
+        // Cek kecocokan activeOutletId terhadap seluruh tempat kemungkinan outlet terdaftar
+        const activeStr = String(activeOutletId);
         return (
-          item.outletId === activeOutletId ||
-          item.outletId === null ||
-          item.outletId === undefined
+          parsedOutletIds.includes(activeStr) ||
+          tenantIds.includes(activeStr) ||
+          String(item.outletId) === activeStr
         );
       });
 
-      console.log("FILTERED PRODUCT DATA:", filteredData);
       setProducts(filteredData);
     } catch (error) {
       console.error("========== GET PRODUCTS ERROR ==========", error);
@@ -158,7 +185,6 @@ export default function CategoryPage() {
   // =========================
   useEffect(() => {
     if (!category) {
-      console.error("CATEGORY TIDAK DITEMUKAN");
       setLoading(false);
       return;
     }
@@ -186,6 +212,12 @@ export default function CategoryPage() {
       return product.hargaproduks[0].harga;
     }
     return 0;
+  };
+
+  // Helper URL Gambar Produk
+  const getImageUrl = (imgName: string) => {
+    if (imgName.startsWith("http")) return imgName;
+    return `${API_URL}/uploads/${imgName}`;
   };
 
   // =========================
@@ -288,7 +320,7 @@ export default function CategoryPage() {
                 <div className="aspect-square bg-[#F5F5F5] overflow-hidden">
                   {product.produkImg ? (
                     <img
-                      src={`${API_URL}/public/produk/${product.produkImg}`}
+                      src={getImageUrl(product.produkImg)}
                       alt={product.namaProduk}
                       className="w-full h-full object-cover"
                     />

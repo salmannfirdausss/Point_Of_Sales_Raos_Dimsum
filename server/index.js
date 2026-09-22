@@ -42,6 +42,6 @@ server.get("/", (req, res) => {
 });
 
 server.listen(PORT, () => {
-  db.sequelize.sync({ alter: true });
+  // db.sequelize.sync({ alter: true });
   console.log(`Server is running at port : ${PORT}`);
 });

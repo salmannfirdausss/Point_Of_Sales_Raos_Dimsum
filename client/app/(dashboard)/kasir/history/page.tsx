@@ -6,6 +6,17 @@ import axios from "axios";
 import KasirHeader from "@/components/kasir/KasirHeader";
 import BottomNavigation from "@/components/kasir/BottomNavigation";
 
+interface KomposisiItem {
+  id?: number;
+  parentProductId?: number;
+  childProductId?: number;
+  qtyPcs: number;
+  childProduct?: {
+    id?: number;
+    namaProduk: string;
+  };
+}
+
 interface ItemPenjualan {
   id: number;
   namaProduk: string;
@@ -13,6 +24,7 @@ interface ItemPenjualan {
   pax: number;
   saus: string[] | string;
   subtotal: number;
+  komposisi?: KomposisiItem[];
 }
 
 interface TransaksiGroup {
@@ -21,6 +33,7 @@ interface TransaksiGroup {
   metodePembayaran: string;
   createdAt: string;
   kasir?: {
+    id?: number | string;
     nama: string;
     username: string;
   };
@@ -29,9 +42,19 @@ interface TransaksiGroup {
 
 interface BiayaOperasional {
   id: number | string;
+  outletId?: number | string;
+  userId?: number | string;
+  user_id?: number | string;
+  kasirId?: number | string;
+  tanggal?: string;
   deskripsi: string;
   biaya: number;
   createdAt?: string;
+  kasir?: {
+    id?: number | string;
+    nama?: string;
+    username?: string;
+  };
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
@@ -51,7 +74,7 @@ export default function KasirHistoryPage() {
 
   // Filter States
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedPayment, setSelectedPayment] = useState<"ALL" | "Cash" | "QRIS">("ALL");
+  const [selectedPayment, setSelectedPayment] = useState<"ALL" | "Cash" | "QRIS" | "Online">("ALL");
 
   // Operational Cost States
   const [biayaList, setBiayaList] = useState<BiayaOperasional[]>([]);
@@ -84,7 +107,7 @@ export default function KasirHistoryPage() {
         const rawData = response.data.data || [];
         const todayKey = getJakartaDateKey(new Date());
         const todayData = rawData.filter(
-          (item: any) => item.createdAt && getJakartaDateKey(item.createdAt) === todayKey,
+          (item: any) => item.createdAt && getJakartaDateKey(item.createdAt) === todayKey
         );
         const grouped = todayData.reduce(
           (acc: Record<string, TransaksiGroup>, item: any) => {
@@ -109,6 +132,7 @@ export default function KasirHistoryPage() {
                   ? JSON.parse(item.saus)
                   : item.saus || [],
               subtotal: Number(item.subtotal || 0),
+              komposisi: item.produk?.komposisi || item.komposisi || [],
             });
             return acc;
           },
@@ -134,13 +158,9 @@ export default function KasirHistoryPage() {
       const response = await axios.get(`${API_URL}/api/biaya-operasional`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+
       if (response.data.success) {
-        const rawData = response.data.data || [];
-        const todayKey = getJakartaDateKey(new Date());
-        const todayBiaya = rawData.filter(
-          (item: any) => item.createdAt && getJakartaDateKey(item.createdAt) === todayKey
-        );
-        setBiayaList(todayBiaya);
+        setBiayaList(response.data.data || []);
       }
     } catch (err) {
       console.error("Gagal memuat biaya operasional", err);
@@ -156,7 +176,7 @@ export default function KasirHistoryPage() {
 
     try {
       setIsSubmittingBiaya(true);
-      const response = await axios.post(
+      await axios.post(
         `${API_URL}/api/biaya-operasional`,
         {
           deskripsi: inputDeskripsi,
@@ -167,11 +187,9 @@ export default function KasirHistoryPage() {
         }
       );
 
-      if (response.data.success) {
-        setInputDeskripsi("");
-        setInputBiaya("");
-        fetchBiayaOperasional();
-      }
+      setInputDeskripsi("");
+      setInputBiaya("");
+      fetchBiayaOperasional();
     } catch (err: any) {
       alert(err.response?.data?.message || "Gagal menambahkan biaya operasional.");
     } finally {
@@ -198,7 +216,7 @@ export default function KasirHistoryPage() {
     }
   };
 
-  // Filtering Logic
+  // Filtering Logic Transaksi
   const filteredTransaksi = useMemo(() => {
     return transaksiList.filter((trx) => {
       const matchSearch =
@@ -208,7 +226,8 @@ export default function KasirHistoryPage() {
         );
 
       const matchPayment =
-        selectedPayment === "ALL" || trx.metodePembayaran === selectedPayment;
+        selectedPayment === "ALL" ||
+        trx.metodePembayaran.toLowerCase() === selectedPayment.toLowerCase();
 
       return matchSearch && matchPayment;
     });
@@ -231,6 +250,12 @@ export default function KasirHistoryPage() {
       .reduce((sum, trx) => sum + trx.totalBayar, 0);
   }, [transaksiList]);
 
+  const onlineMasuk = useMemo(() => {
+    return transaksiList
+      .filter((trx) => trx.metodePembayaran.toLowerCase() === "online")
+      .reduce((sum, trx) => sum + trx.totalBayar, 0);
+  }, [transaksiList]);
+
   const totalBiayaOperasional = useMemo(() => {
     return biayaList.reduce((sum, item) => sum + Number(item.biaya || 0), 0);
   }, [biayaList]);
@@ -239,12 +264,55 @@ export default function KasirHistoryPage() {
     return cashMasuk - totalBiayaOperasional;
   }, [cashMasuk, totalBiayaOperasional]);
 
+  // Rekap Pcs & Pax Produk
+  const recapProduk = useMemo(() => {
+    const map: Record<string, { totalPcs: number; totalPax: number }> = {};
+
+    transaksiList.forEach((trx) => {
+      trx.items.forEach((item) => {
+        const cleanName = item.namaProduk.replace(/\s*\([^)]*Mix[^)]*\)/gi, "").trim();
+
+        if (item.komposisi && item.komposisi.length > 0) {
+          item.komposisi.forEach((komp) => {
+            const childName = komp.childProduct?.namaProduk || "Produk";
+            const totalPcsItem = Number(item.pax || 1) * Number(komp.qtyPcs || 1);
+
+            if (!map[childName]) {
+              map[childName] = { totalPcs: 0, totalPax: 0 };
+            }
+
+            map[childName].totalPcs += totalPcsItem;
+            map[childName].totalPax += Number(item.pax || 1);
+          });
+        } else {
+          const totalPcsItem = (item.pcs || 1) * (item.pax || 1);
+
+          if (!map[cleanName]) {
+            map[cleanName] = { totalPcs: 0, totalPax: 0 };
+          }
+
+          map[cleanName].totalPcs += totalPcsItem;
+          map[cleanName].totalPax += Number(item.pax || 1);
+        }
+      });
+    });
+
+    return Object.entries(map).map(([namaProduk, data]) => ({
+      namaProduk,
+      totalPcs: data.totalPcs,
+      totalPax: data.totalPax,
+    }));
+  }, [transaksiList]);
+
+  const grandTotalPcs = useMemo(() => {
+    return recapProduk.reduce((acc, curr) => acc + curr.totalPcs, 0);
+  }, [recapProduk]);
+
   return (
     <main className="min-h-screen bg-slate-100/60 pb-28 text-slate-800 antialiased">
       <KasirHeader title="Laporan & Riwayat Penjualan" />
 
       <div className="max-w-md mx-auto px-4 py-6 space-y-5">
-
         {/* Header Section */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4">
           <div>
@@ -282,12 +350,12 @@ export default function KasirHistoryPage() {
         </div>
 
         {/* Dashboard Stat Cards */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 space-y-1">
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 space-y-1 col-span-2">
             <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
               Total Omzet
             </span>
-            <p className="text-base font-bold text-slate-900 tracking-tight">
+            <p className="text-lg font-bold text-slate-900 tracking-tight">
               Rp {totalOmzet.toLocaleString("id-ID")}
             </p>
           </div>
@@ -307,6 +375,15 @@ export default function KasirHistoryPage() {
             </span>
             <p className="text-base font-bold text-slate-900 tracking-tight">
               Rp {qrisMasuk.toLocaleString("id-ID")}
+            </p>
+          </div>
+
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 space-y-1">
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+              Online
+            </span>
+            <p className="text-base font-bold text-slate-900 tracking-tight">
+              Rp {onlineMasuk.toLocaleString("id-ID")}
             </p>
           </div>
 
@@ -337,6 +414,58 @@ export default function KasirHistoryPage() {
               </svg>
             </div>
           </div>
+        </div>
+
+        {/* REKAP PRODUK KELUAR HARI INI */}
+        <div className="bg-white rounded-xl border border-slate-200/80 p-4 space-y-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-slate-100 text-slate-700 rounded-md flex items-center justify-center">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+              </div>
+              <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Produk Keluar Hari Ini
+              </h2>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200/80">
+                {recapProduk.length} Menu
+              </span>
+            </div>
+          </div>
+
+          {recapProduk.length === 0 ? (
+            <p className="text-xs text-slate-400 italic text-center py-3">
+              Belum ada produk keluar hari ini.
+            </p>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {recapProduk.map((item) => (
+                <div
+                  key={item.namaProduk}
+                  className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0 text-xs"
+                >
+                  <div className="space-y-0.5">
+                    <p className="font-semibold text-slate-800 leading-tight">
+                      {item.namaProduk}
+                    </p>
+                    <p className="text-[10px] font-medium text-slate-400">
+                      Terjual dalam {item.totalPax} Pax
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <span className="bg-slate-900 text-white font-mono text-xs font-bold px-2.5 py-1 rounded-lg">
+                      {item.totalPcs} <span className="text-[10px] font-normal text-slate-300">Pcs</span>
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Form & List Biaya Operasional */}
@@ -439,7 +568,7 @@ export default function KasirHistoryPage() {
 
           {/* Payment Method Pills */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-            {(["ALL", "Cash", "QRIS"] as const).map((method) => (
+            {(["ALL", "Cash", "QRIS", "Online"] as const).map((method) => (
               <button
                 key={method}
                 onClick={() => setSelectedPayment(method)}
@@ -456,7 +585,6 @@ export default function KasirHistoryPage() {
 
         {/* Content Section */}
         {loading ? (
-          /* Skeleton Loader */
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
               <div
@@ -475,7 +603,6 @@ export default function KasirHistoryPage() {
             ))}
           </div>
         ) : error ? (
-          /* Error State */
           <div className="bg-white rounded-xl border border-slate-200 p-6 text-center">
             <div className="w-8 h-8 bg-slate-100 text-slate-600 rounded-lg flex items-center justify-center mx-auto mb-2">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -494,7 +621,6 @@ export default function KasirHistoryPage() {
             </button>
           </div>
         ) : filteredTransaksi.length === 0 ? (
-          /* Empty State */
           <div className="bg-white rounded-xl border border-slate-200/80 p-8 text-center">
             <div className="w-10 h-10 bg-slate-100 text-slate-400 rounded-lg flex items-center justify-center mx-auto mb-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -511,7 +637,6 @@ export default function KasirHistoryPage() {
             </p>
           </div>
         ) : (
-          /* Transaction Cards List */
           <div className="space-y-3">
             {filteredTransaksi.map((trx) => (
               <div
@@ -539,41 +664,33 @@ export default function KasirHistoryPage() {
                 </div>
 
                 {/* Items Breakdown */}
-                <div className="p-3.5 space-y-2.5 divide-y divide-slate-100">
-                  {trx.items.map((item) => (
-                    <div
-                      key={item.id}
-                      className="pt-2.5 first:pt-0 flex justify-between items-start gap-3"
-                    >
-                      <div className="flex-1 space-y-0.5">
-                        <h4 className="font-semibold text-xs text-slate-900 leading-snug">
-                          {item.namaProduk}
-                        </h4>
+                <div className="p-3.5 space-y-2 divide-y divide-slate-100">
+                  {trx.items.map((item) => {
+                    const sausText =
+                      Array.isArray(item.saus) && item.saus.length > 0
+                        ? ` • ${item.saus.join(", ")}`
+                        : "";
 
-                        <p className="text-[11px] font-medium text-slate-500">
-                          {item.pcs} Pcs × {item.pax} Pax
+                    return (
+                      <div
+                        key={item.id}
+                        className="pt-2 first:pt-0 flex justify-between items-start gap-3 text-xs"
+                      >
+                        <div className="space-y-0.5">
+                          <h4 className="font-semibold text-slate-900 leading-snug">
+                            {item.namaProduk}
+                          </h4>
+                          <p className="text-[11px] font-medium text-slate-500">
+                            {item.pax} Pax ({item.pcs * item.pax} Pcs){sausText}
+                          </p>
+                        </div>
+
+                        <p className="font-semibold text-slate-900 tracking-tight whitespace-nowrap">
+                          Rp {item.subtotal.toLocaleString("id-ID")}
                         </p>
-
-                        {/* Sauce Tags */}
-                        {Array.isArray(item.saus) && item.saus.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-1">
-                            {item.saus.map((s, idx) => (
-                              <span
-                                key={idx}
-                                className="text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded"
-                              >
-                                {s}
-                              </span>
-                            ))}
-                          </div>
-                        )}
                       </div>
-
-                      <p className="text-xs font-semibold text-slate-900 tracking-tight">
-                        Rp {item.subtotal.toLocaleString("id-ID")}
-                      </p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Footer Total */}

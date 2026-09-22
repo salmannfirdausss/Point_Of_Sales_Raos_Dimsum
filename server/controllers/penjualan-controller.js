@@ -10,6 +10,12 @@ const DetailSausModel = db.DetailSaus || db.detailSaus || db.detailsaus;
 const AbsenModel = db.Absen || db.absen;
 const sequelize = db.sequelize;
 
+const PAYMENT_MAP = {
+  CASH: "Cash",
+  QRIS: "QRIS",
+  ONLINE: "Online",
+};
+
 const getDateKeyInTimeZone = (dateValue, timeZone = "Asia/Jakarta") => {
   const date = new Date(dateValue);
   if (Number.isNaN(date.getTime())) return "-";
@@ -116,12 +122,14 @@ const checkoutTransaksi = async (req, res) => {
     }
 
     const outletId = karyawan.outletId;
-    const paymentMethod = String(metodePembayaran || "").toUpperCase();
-    if (!["CASH", "QRIS"].includes(paymentMethod)) {
+    const paymentKey = String(metodePembayaran || "").toUpperCase();
+    const formattedPaymentMethod = PAYMENT_MAP[paymentKey];
+
+    if (!formattedPaymentMethod) {
       await transaction.rollback();
       return res.status(400).json({
         success: false,
-        message: "Metode pembayaran harus Cash atau QRIS.",
+        message: "Metode pembayaran harus Cash, QRIS, atau Online.",
       });
     }
 
@@ -155,13 +163,25 @@ const checkoutTransaksi = async (req, res) => {
       });
     }
 
+    // Ambil data ID produk pendukung untuk menu Mix
+    const mixComponents = await ProdukModel.findAll({
+      where: {
+        namaProduk: ["Dimsum Original", "Dimsum Rice Paper"],
+      },
+      transaction,
+    });
+    const componentMap = new Map(
+      mixComponents.map((p) => [p.namaProduk.toLowerCase(), p])
+    );
+
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const randomNum = Math.floor(1000 + Math.random() * 9000);
     const invoice = `INV-${dateStr}-${randomNum}`;
     const dataPenjualan = [];
     let calculatedTotal = 0;
 
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
       const productId = Number(item.productId || item.idProduk);
       const product = productMap.get(productId);
       const pcs = Number(item.pcs);
@@ -211,33 +231,80 @@ const checkoutTransaksi = async (req, res) => {
       const subtotal = unitPrice * pax;
       calculatedTotal += subtotal;
 
-      dataPenjualan.push({
-        invoice,
-        idProduk: productId,
-        userId,
-        outletId,
-        namaProduk: product.namaProduk,
-        pcs,
-        pax,
-        saus: sauces.length ? sauces : ["original"],
-        subtotal,
-        totalBayar: calculatedTotal,
-        metodePembayaran: paymentMethod === "CASH" ? "Cash" : "QRIS",
-      });
+      // Cek apakah produk merupakan varian Mix
+      const isMixProduct = product.namaProduk.toLowerCase().includes("mix");
+
+      if (isMixProduct) {
+        const halfSubtotal = subtotal / 2;
+        const halfPcs = Math.floor(pcs / 2); // Bagi total PCS dengan 2 secara dinamis (6 -> 3, 4 -> 2)
+        const origProd = componentMap.get("dimsum original");
+        const riceProd = componentMap.get("dimsum rice paper");
+
+        // Label keterangan produk asal Mix
+        const mixLabel = `(Mix: ${product.namaProduk})`;
+
+        // 1. Catat sebagai Dimsum Original
+        dataPenjualan.push({
+          invoice,
+          idProduk: origProd ? origProd.id : productId,
+          userId,
+          outletId,
+          namaProduk: `Dimsum Original ${mixLabel}`,
+          pcs: halfPcs,
+          pax: pax,
+          saus: sauces.length ? sauces : ["original"],
+          subtotal: halfSubtotal,
+          totalBayar: calculatedTotal,
+          metodePembayaran: formattedPaymentMethod,
+          _itemIndex: i,
+        });
+
+        // 2. Catat sebagai Dimsum Rice Paper
+        dataPenjualan.push({
+          invoice,
+          idProduk: riceProd ? riceProd.id : productId,
+          userId,
+          outletId,
+          namaProduk: `Dimsum Rice Paper ${mixLabel}`,
+          pcs: halfPcs,
+          pax: pax,
+          saus: sauces.length ? sauces : ["original"],
+          subtotal: halfSubtotal,
+          totalBayar: calculatedTotal,
+          metodePembayaran: formattedPaymentMethod,
+          _itemIndex: i,
+        });
+      } else {
+        // Produk reguler biasa
+        dataPenjualan.push({
+          invoice,
+          idProduk: productId,
+          userId,
+          outletId,
+          namaProduk: product.namaProduk,
+          pcs,
+          pax,
+          saus: sauces.length ? sauces : ["original"],
+          subtotal,
+          totalBayar: calculatedTotal,
+          metodePembayaran: formattedPaymentMethod,
+          _itemIndex: i,
+        });
+      }
     }
 
     dataPenjualan.forEach((row) => {
       row.totalBayar = calculatedTotal;
     });
 
-    // 3. Simpan semua baris barang sekaligus
     const result = await Penjualan.bulkCreate(dataPenjualan, { transaction });
 
     if (DetailSausModel) {
       const detailSausData = [];
       result.forEach((penjualanItem, index) => {
-        const item = items[index];
-        const sauceDetails = item.sauceDetails || item.detailSaus || [];
+        const originalIndex = dataPenjualan[index]._itemIndex;
+        const item = items[originalIndex];
+        const sauceDetails = item?.sauceDetails || item?.detailSaus || [];
 
         if (!Array.isArray(sauceDetails)) return;
 
@@ -269,7 +336,7 @@ const checkoutTransaksi = async (req, res) => {
         invoice,
         kasirId: userId,
         totalBayar: calculatedTotal,
-        metodePembayaran: paymentMethod === "CASH" ? "Cash" : "QRIS",
+        metodePembayaran: formattedPaymentMethod,
         totalItems: result.length,
       },
     });

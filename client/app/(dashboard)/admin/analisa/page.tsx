@@ -70,7 +70,7 @@ export default function AnalisaPage() {
     return analisa?.days.find((day) => day.date === selectedDay);
   }, [selectedDay, analisa]);
 
-  // Transform Data Packaging dengan categoryName yang meledat
+  // Transform Data Packaging
   const packageGroups = useMemo(() => selectedSummary?.packages ?? [], [selectedSummary]);
 
   const packageData = useMemo(() => {
@@ -87,6 +87,10 @@ export default function AnalisaPage() {
   // Calculators
   const maxSauceCount = useMemo(() => Math.max(...sauceData.map((item) => item.count), 1), [sauceData]);
   const totalPax = useMemo(() => packageData.reduce((total, item) => total + item.pax, 0), [packageData]);
+  const totalPackagingPcs = useMemo(
+    () => packageData.reduce((total, item) => total + item.qty * item.pax, 0),
+    [packageData]
+  );
   const totalSaucePcs = useMemo(() => sauceData.reduce((total, item) => total + item.count, 0), [sauceData]);
 
   // Chart Conic Gradient Calculation
@@ -154,13 +158,25 @@ export default function AnalisaPage() {
       {/* METRIC SUMMARY CARDS */}
       <div className="grid grid-cols-2 gap-3 md:gap-4">
         <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Total Outflow Packaging</span>
-          <p className="text-xl md:text-2xl font-black text-[#212121]">
-            {loading ? "..." : `${totalPax.toLocaleString("id-ID")} Pax`}
-          </p>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+            Total Outflow Packaging
+          </span>
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <p className="text-xl md:text-2xl font-black text-[#212121]">
+              {loading ? "..." : `${totalPax.toLocaleString("id-ID")} Pax`}
+            </p>
+            {!loading && (
+              <span className="text-[11px] font-extrabold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/80">
+                {totalPackagingPcs.toLocaleString("id-ID")} Pcs
+              </span>
+            )}
+          </div>
         </div>
+
         <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Total Keluar Saus</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+            Total Keluar Saus
+          </span>
           <p className="text-xl md:text-2xl font-black text-[#212121]">
             {loading ? "..." : `${totalSaucePcs.toLocaleString("id-ID")} Pcs`}
           </p>
@@ -181,13 +197,12 @@ export default function AnalisaPage() {
           className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${activeTab === "PCS" ? "bg-white text-zinc-900 shadow-2xs" : "text-zinc-500"
             }`}
         >
-          Packaging (Pax)
+          Packaging (Pax & Pcs)
         </button>
       </div>
 
       {/* 2-COLUMN GRID ON DESKTOP */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-
         {/* SAUS SECTION */}
         <div
           className={`bg-white p-5 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-4 ${activeTab === "Saus" ? "block" : "hidden md:block"
@@ -240,7 +255,7 @@ export default function AnalisaPage() {
         >
           <div className="border-b border-zinc-100 pb-3">
             <h2 className="text-sm font-bold text-[#212121]">Penggunaan Packaging</h2>
-            <p className="text-[11px] text-zinc-400 mt-0.5">Proporsi kemasan berdasarkan kuintal/pax</p>
+            <p className="text-[11px] text-zinc-400 mt-0.5">Proporsi kemasan berdasarkan pax dan pcs</p>
           </div>
 
           {loading ? (
@@ -295,30 +310,65 @@ export default function AnalisaPage() {
               </div>
 
               {/* BREAKDOWN BY CATEGORY */}
-              <div className="space-y-4 pt-2 border-t border-zinc-100">
-                {packageGroups.map((group) => (
-                  <div key={group.categoryName} className="space-y-2">
-                    <h3 className="text-xs font-bold text-zinc-800 uppercase tracking-wider">
-                      {group.categoryName}
-                    </h3>
-                    <div className="grid grid-cols-3 gap-2">
-                      {group.packages.map((item, idx) => (
-                        <div
-                          key={`${group.categoryName}-${item.qty}-${idx}`}
-                          className="bg-zinc-50/80 p-2.5 rounded-xl border border-zinc-200/60 text-center"
-                        >
-                          <p className="text-[11px] font-medium text-zinc-500">{item.qty} pcs</p>
-                          <p className="text-xs font-bold text-[#212121] mt-0.5">{item.pax} pax</p>
+              <div className="space-y-5 pt-2 border-t border-zinc-100">
+                {packageGroups.map((group) => {
+                  const categoryTotalPax = group.packages.reduce((sum, p) => sum + p.pax, 0);
+                  const categoryTotalPcs = group.packages.reduce(
+                    (sum, p) => sum + p.qty * p.pax,
+                    0
+                  );
+
+                  return (
+                    <div key={group.categoryName} className="space-y-2.5">
+                      {/* HEADER KATEGORI DENGAN REKAP TOTAL */}
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xs font-bold text-zinc-800 uppercase tracking-wider">
+                          {group.categoryName}
+                        </h3>
+                        <div className="flex items-center gap-1.5 text-[10px] font-semibold text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md border border-zinc-200/60">
+                          <span>Total Pcs Keluar</span>
+                          <span>:</span>
+                          <span className="text-zinc-900 font-bold">
+                            {categoryTotalPcs.toLocaleString("id-ID")} Pcs
+                          </span>
                         </div>
-                      ))}
+                      </div>
+
+                      {/* GRID VARIAN DENGAN DETAIL TOTAL PCS */}
+                      <div className="grid grid-cols-3 gap-2">
+                        {group.packages.map((item, idx) => {
+                          const itemTotalPcs = item.qty * item.pax;
+
+                          return (
+                            <div
+                              key={`${group.categoryName}-${item.qty}-${idx}`}
+                              className="bg-zinc-50/80 p-2.5 rounded-xl border border-zinc-200/60 flex flex-col justify-between text-center transition-all hover:border-zinc-300"
+                            >
+                              <div>
+                                <p className="text-[11px] font-medium text-zinc-500">
+                                  {item.qty} pcs/pax
+                                </p>
+                                <p className="text-xs font-bold text-[#212121] mt-0.5">
+                                  {item.pax} pax
+                                </p>
+                              </div>
+
+                              <div className="mt-2 pt-1.5 border-t border-zinc-200/50">
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60 inline-block w-full truncate">
+                                  {itemTotalPcs.toLocaleString("id-ID")} Pcs
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
         </div>
-
       </div>
     </div>
   );

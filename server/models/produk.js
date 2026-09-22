@@ -40,6 +40,12 @@ module.exports = (sequelize, DataTypes) => {
           as: 'hargaproduks',
         });
       }
+
+      // Tambahkan di dalam static associate(models) pada model Produk
+      Produk.hasMany(models.KomposisiProduk, {
+        foreignKey: 'parentProductId',
+        as: 'komposisi'
+      });
     }
   }
 
@@ -76,7 +82,10 @@ module.exports = (sequelize, DataTypes) => {
         onUpdate: 'CASCADE',
         onDelete: 'SET NULL', // Diubah ke SET NULL jika outlet dihapus
       },
-
+      outletIds: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
       produkImg: {
         type: DataTypes.STRING,
         allowNull: true,

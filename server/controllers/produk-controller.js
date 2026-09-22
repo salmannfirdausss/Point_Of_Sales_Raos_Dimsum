@@ -2,23 +2,27 @@ const { Op } = require("sequelize");
 const fs = require("fs");
 const path = require("path");
 
-// Import objek db utama untuk penanganan nama model yang lebih aman
 const db = require("../models");
 
-// Safeguard penamaan model (mencegah undefined akibat beda huruf kapital/kecil)
 const produk = db.produk || db.Produk;
 const category = db.category || db.Category;
 const topping = db.topping || db.Topping;
-const hargaProduk = db.hargaProduk || db.hargaproduk || db.HargaProduk;
+const hargaProduk = db.hargaProduk || db.hargaproduks || db.HargaProduk;
 const outlet = db.outlet || db.Outlet;
 const sequelize = db.sequelize;
 
-// Helper parse JSON string dari FormData
-const parseJsonField = (field) => {
+const parseSafeNumber = (val) => {
+  if (val === null || val === undefined || val === "" || val === "null" || val === "undefined") return null;
+  const parsed = Number(val);
+  return isNaN(parsed) ? null : parsed;
+};
+
+const parseArrayField = (field) => {
   if (!field) return [];
   if (typeof field === "string") {
     try {
-      return JSON.parse(field);
+      const parsed = JSON.parse(field);
+      return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
       return [];
     }
@@ -27,18 +31,20 @@ const parseJsonField = (field) => {
 };
 
 // ==========================================
-// 1. GET PRODUK KASIR (FILTER BERDASARKAN OUTLET)
+// 1. GET PRODUK KASIR (FILTER ARRAY OUTLET)
 // ==========================================
 const getProdukKasir = async (req, res) => {
   try {
     const { outletId, categoryId } = req.query;
-
     const whereClause = {};
 
     if (outletId) {
+      const targetId = Number(outletId);
       whereClause[Op.or] = [
-        { outletId: Number(outletId) },
-        { outletId: null }
+        { outletIds: null },
+        { outletIds: "" },
+        { outletIds: { [Op.like]: `%"${targetId}"%` } },
+        { outletIds: { [Op.like]: `%${targetId}%` } },
       ];
     }
 
@@ -52,11 +58,7 @@ const getProdukKasir = async (req, res) => {
         { model: category, as: "category", attributes: ["id", "name"] },
         { model: topping, as: "toppings" },
         { model: hargaProduk, as: "hargaproduks" },
-        {
-          model: outlet,
-          as: "outlet",
-          attributes: ["id", "outletName"]
-        },
+        { model: outlet, as: "outlet", attributes: ["id", "outletName"] },
       ],
       order: [["id", "ASC"]],
     });
@@ -68,52 +70,20 @@ const getProdukKasir = async (req, res) => {
   }
 };
 
-// GET semua produk (Admin - Tampilkan Semua Tanpa Filter)
-const getAllProdukAdmin = async (req, res) => {
-  try {
-    const products = await produk.findAll({
-      include: [
-        { model: category, as: "category", attributes: ["id", "name"] },
-        { model: topping, as: "toppings" },
-        { model: hargaProduk, as: "hargaproduks" },
-        {
-          model: outlet,
-          as: "outlet",
-          attributes: ["id", "outletName"]
-        },
-      ],
-      order: [["id", "ASC"]],
-    });
-    return res.status(200).json({ success: true, data: products });
-  } catch (error) {
-    console.error("Error pada getAllProdukAdmin:", error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// GET produk berdasarkan Kategori + Filter Outlet
 const getProdukByCategory = async (req, res) => {
   try {
     const { categoryId } = req.params;
-
-    // Log untuk memastikan isi token saat dipanggil
-    console.log("=== DEBUG REQ.USER DI CONTROLLER ===");
-    console.log(req.user);
-
-    // Ambil outletId dari token JWT (req.user) atau query param
     const targetOutletId = req.user?.outletId ?? req.query.outletId;
 
-    console.log("TARGET OUTLET ID:", targetOutletId);
+    const whereClause = { categoryId: Number(categoryId) };
 
-    const whereClause = {
-      categoryId: Number(categoryId)
-    };
-
-    // Filter jika outletId ada (contoh: Dika = 2)
     if (targetOutletId !== undefined && targetOutletId !== null && targetOutletId !== "") {
+      const tId = Number(targetOutletId);
       whereClause[Op.or] = [
-        { outletId: Number(targetOutletId) },
-        { outletId: null }
+        { outletIds: null },
+        { outletIds: "" },
+        { outletIds: { [Op.like]: `%"${tId}"%` } },
+        { outletIds: { [Op.like]: `%${tId}%` } },
       ];
     }
 
@@ -134,70 +104,70 @@ const getProdukByCategory = async (req, res) => {
   }
 };
 
-// GET detail produk
-const getProdukById = async (req, res) => {
-  try {
-    const product = await produk.findByPk(req.params.id, {
-      include: [
-        { model: category, as: "category", attributes: ["id", "name"] },
-        { model: topping, as: "toppings" },
-        { model: hargaProduk, as: "hargaproduks" },
-        { model: outlet, as: "outlet", attributes: ["id", "outletName"] },
-      ],
-    });
-    if (!product) return res.status(404).json({ success: false, message: "Produk tidak ditemukan" });
-    return res.status(200).json({ success: true, data: product });
-  } catch (error) {
-    console.error("Error pada getProdukById:", error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// CREATE produk
+// CREATE produk (DENGAN SUPPORT OUTLET IDS ARRAY)
 const createProduk = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { namaProduk, keterangan, categoryId, tenantId, outletId } = req.body;
+    const { namaProduk, keterangan, categoryId, tenantId } = req.body;
 
-    const toppings = parseJsonField(req.body.toppings);
-    const hargaproduks = parseJsonField(req.body.hargaproduks);
+    if (!namaProduk || !namaProduk.trim()) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: "Nama produk wajib diisi" });
+    }
 
+    const validCategoryId = parseSafeNumber(categoryId);
+    if (!validCategoryId) {
+      await t.rollback();
+      return res.status(400).json({ success: false, message: "Kategori wajib dipilih" });
+    }
+
+    // Tangkap data dari multi-select frontend
+    const rawOutletIds = parseArrayField(req.body.outletId || req.body.outletIds);
+    const outletArray = rawOutletIds.map((id) => String(id)).filter(Boolean);
+    const outletIdsVal = outletArray.length > 0 ? JSON.stringify(outletArray) : null;
+
+    const toppings = parseArrayField(req.body.toppings);
+    const hargaproduks = parseArrayField(req.body.hargaproduks);
     const produkImg = req.file ? req.file.filename : null;
 
-    const validOutletId = outletId && outletId !== "null" && outletId !== "" ? Number(outletId) : null;
-    const validTenantId = tenantId && tenantId !== "null" && tenantId !== "" ? Number(tenantId) : null;
-
-    // 1. Simpan Produk Utama
     const newProduk = await produk.create(
       {
-        namaProduk,
+        namaProduk: namaProduk.trim(),
         keterangan: keterangan || null,
-        categoryId: Number(categoryId),
-        tenantId: validTenantId,
-        outletId: validOutletId,
+        categoryId: validCategoryId,
+        tenantId: parseSafeNumber(tenantId),
+        outletIds: outletIdsVal, // Disimpan sebagai JSON array string
         produkImg,
       },
       { transaction: t }
     );
 
-    // 2. Simpan Toppings jika ada
-    if (toppings.length > 0) {
-      const toppingData = toppings.map((item) => ({
-        namaTopping: item.namaTopping,
-        harga: Number(item.harga) || 0,
-        produkId: newProduk.id,
-      }));
-      await topping.bulkCreate(toppingData, { transaction: t });
+    if (Array.isArray(toppings) && toppings.length > 0) {
+      const toppingData = toppings
+        .filter((item) => item.namaTopping && item.namaTopping.trim() !== "")
+        .map((item) => ({
+          namaTopping: item.namaTopping.trim(),
+          harga: parseSafeNumber(item.harga) || 0,
+          produkId: newProduk.id,
+        }));
+
+      if (toppingData.length > 0) {
+        await topping.bulkCreate(toppingData, { transaction: t });
+      }
     }
 
-    // 3. Simpan Harga Produk jika ada
-    if (hargaproduks.length > 0) {
-      const hargaData = hargaproduks.map((item) => ({
-        qty: Number(item.qty),
-        harga: Number(item.harga) || 0,
-        produkId: newProduk.id,
-      }));
-      await hargaProduk.bulkCreate(hargaData, { transaction: t });
+    if (Array.isArray(hargaproduks) && hargaproduks.length > 0) {
+      const hargaData = hargaproduks
+        .filter((item) => item.qty !== undefined && item.qty !== null)
+        .map((item) => ({
+          qty: parseSafeNumber(item.qty) || 1,
+          harga: parseSafeNumber(item.harga) || 0,
+          produkId: newProduk.id,
+        }));
+
+      if (hargaData.length > 0) {
+        await hargaProduk.bulkCreate(hargaData, { transaction: t });
+      }
     }
 
     await t.commit();
@@ -208,7 +178,7 @@ const createProduk = async (req, res) => {
     });
   } catch (error) {
     await t.rollback();
-    console.error("Error pada createProduk:", error);
+    console.error("❌ Error pada createProduk:", error);
 
     if (req.file) {
       const filePath = path.join("uploads", req.file.filename);
@@ -224,7 +194,7 @@ const updateProduk = async (req, res) => {
   const t = await sequelize.transaction();
   try {
     const { id } = req.params;
-    const { namaProduk, keterangan, categoryId, tenantId, outletId } = req.body;
+    const { namaProduk, keterangan, categoryId, tenantId } = req.body;
 
     const item = await produk.findByPk(id);
     if (!item) {
@@ -237,7 +207,6 @@ const updateProduk = async (req, res) => {
     }
 
     let produkImg = item.produkImg;
-
     if (req.file) {
       if (item.produkImg) {
         const oldPath = path.join("uploads", item.produkImg);
@@ -246,48 +215,82 @@ const updateProduk = async (req, res) => {
       produkImg = req.file.filename;
     }
 
-    const validOutletId = outletId !== undefined
-      ? (outletId && outletId !== "null" && outletId !== "" ? Number(outletId) : null)
-      : item.outletId;
+    const validCategoryId = categoryId !== undefined ? parseSafeNumber(categoryId) : item.categoryId;
 
-    const validTenantId = tenantId !== undefined
-      ? (tenantId && tenantId !== "null" && tenantId !== "" ? Number(tenantId) : null)
-      : item.tenantId;
+    const rawOutletIds = parseArrayField(req.body.outletId || req.body.outletIds);
+    const outletArray = rawOutletIds.map((id) => String(id)).filter(Boolean);
+    const outletIdsVal = outletArray.length > 0 ? JSON.stringify(outletArray) : null;
 
     await item.update(
       {
-        namaProduk: namaProduk || item.namaProduk,
+        namaProduk: namaProduk ? namaProduk.trim() : item.namaProduk,
         keterangan: keterangan !== undefined ? keterangan : item.keterangan,
-        categoryId: categoryId ? Number(categoryId) : item.categoryId,
-        tenantId: validTenantId,
-        outletId: validOutletId,
+        categoryId: validCategoryId,
+        tenantId: tenantId !== undefined ? parseSafeNumber(tenantId) : item.tenantId,
+        outletIds: outletIdsVal,
         produkImg,
       },
       { transaction: t }
     );
 
-    const toppings = parseJsonField(req.body.toppings);
-    const hargaproduks = parseJsonField(req.body.hargaproduks);
+    const toppings = parseArrayField(req.body.toppings);
+    const hargaproduks = parseArrayField(req.body.hargaproduks);
 
-    await topping.destroy({ where: { produkId: id }, transaction: t });
-    await hargaProduk.destroy({ where: { produkId: id }, transaction: t });
+    const existingHargaList = await hargaProduk.findAll({
+      where: { produkId: id },
+      transaction: t,
+    });
 
-    if (toppings.length > 0) {
-      const toppingData = toppings.map((tItem) => ({
-        namaTopping: tItem.namaTopping,
-        harga: Number(tItem.harga) || 0,
-        produkId: Number(id),
-      }));
-      await topping.bulkCreate(toppingData, { transaction: t });
+    const existingHargaIds = existingHargaList.map((h) => h.id);
+    const incomingHargaIds = hargaproduks.map((h) => parseSafeNumber(h.id)).filter(Boolean);
+
+    const hargaIdsToDelete = existingHargaIds.filter((hId) => !incomingHargaIds.includes(hId));
+
+    if (hargaIdsToDelete.length > 0) {
+      try {
+        await hargaProduk.destroy({
+          where: { id: hargaIdsToDelete, produkId: id },
+          transaction: t,
+        });
+      } catch (fkErr) {
+        console.warn("⚠️ Harga terikat riwayat pesanan:", fkErr.message);
+      }
     }
 
-    if (hargaproduks.length > 0) {
-      const hargaData = hargaproduks.map((hItem) => ({
-        qty: Number(hItem.qty),
-        harga: Number(hItem.harga) || 0,
-        produkId: Number(id),
-      }));
-      await hargaProduk.bulkCreate(hargaData, { transaction: t });
+    if (Array.isArray(hargaproduks) && hargaproduks.length > 0) {
+      for (const hItem of hargaproduks) {
+        const hId = parseSafeNumber(hItem.id);
+        const qty = parseSafeNumber(hItem.qty) || 1;
+        const hargaVal = parseSafeNumber(hItem.harga) || 0;
+
+        if (hId && existingHargaIds.includes(hId)) {
+          await hargaProduk.update(
+            { qty, harga: hargaVal },
+            { where: { id: hId, produkId: id }, transaction: t }
+          );
+        } else {
+          await hargaProduk.create(
+            { qty, harga: hargaVal, produkId: Number(id) },
+            { transaction: t }
+          );
+        }
+      }
+    }
+
+    await topping.destroy({ where: { produkId: id }, transaction: t });
+
+    if (Array.isArray(toppings) && toppings.length > 0) {
+      const toppingData = toppings
+        .filter((tItem) => tItem.namaTopping && tItem.namaTopping.trim() !== "")
+        .map((tItem) => ({
+          namaTopping: tItem.namaTopping.trim(),
+          harga: parseSafeNumber(tItem.harga) || 0,
+          produkId: Number(id),
+        }));
+
+      if (toppingData.length > 0) {
+        await topping.bulkCreate(toppingData, { transaction: t });
+      }
     }
 
     await t.commit();
@@ -298,7 +301,7 @@ const updateProduk = async (req, res) => {
     });
   } catch (error) {
     await t.rollback();
-    console.error("Error pada updateProduk:", error);
+    console.error("❌ Error pada updateProduk:", error);
 
     if (req.file) {
       const filePath = path.join("uploads", req.file.filename);
@@ -309,7 +312,40 @@ const updateProduk = async (req, res) => {
   }
 };
 
-// DELETE produk
+const getAllProdukAdmin = async (req, res) => {
+  try {
+    const products = await produk.findAll({
+      include: [
+        { model: category, as: "category", attributes: ["id", "name"] },
+        { model: topping, as: "toppings" },
+        { model: hargaProduk, as: "hargaproduks" },
+      ],
+      order: [["id", "ASC"]],
+    });
+    return res.status(200).json({ success: true, data: products });
+  } catch (error) {
+    console.error("Error pada getAllProdukAdmin:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const getProdukById = async (req, res) => {
+  try {
+    const product = await produk.findByPk(req.params.id, {
+      include: [
+        { model: category, as: "category", attributes: ["id", "name"] },
+        { model: topping, as: "toppings" },
+        { model: hargaProduk, as: "hargaproduks" },
+      ],
+    });
+    if (!product) return res.status(404).json({ success: false, message: "Produk tidak ditemukan" });
+    return res.status(200).json({ success: true, data: product });
+  } catch (error) {
+    console.error("Error pada getProdukById:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 const deleteProduk = async (req, res) => {
   const t = await sequelize.transaction();
   try {
@@ -339,7 +375,6 @@ const deleteProduk = async (req, res) => {
   }
 };
 
-// Auxiliaries
 const getAllSauce = async (req, res) => {
   try {
     const sauces = await topping.findAll({ where: { produkId: req.params.productId } });
@@ -384,7 +419,7 @@ module.exports = {
   createProduk,
   updateProduk,
   deleteProduk,
-  getAllSauce,
   getAllQty,
+  getAllSauce,
   getHargaByPax,
 };
