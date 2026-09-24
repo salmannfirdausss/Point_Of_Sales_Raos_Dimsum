@@ -14,6 +14,11 @@ interface KomposisiItem {
   childProduct?: {
     id?: number;
     namaProduk: string;
+    category?: {
+      id: number;
+      name?: string;
+      nama_kategori?: string;
+    };
   };
 }
 
@@ -24,6 +29,16 @@ interface ItemPenjualan {
   pax: number;
   saus: string[] | string;
   subtotal: number;
+  produk?: {
+    id?: number;
+    namaProduk?: string;
+    category?: {
+      id: number;
+      name?: string;
+      nama_kategori?: string;
+    };
+    komposisi?: KomposisiItem[];
+  };
   komposisi?: KomposisiItem[];
 }
 
@@ -132,6 +147,7 @@ export default function KasirHistoryPage() {
                   ? JSON.parse(item.saus)
                   : item.saus || [],
               subtotal: Number(item.subtotal || 0),
+              produk: item.produk,
               komposisi: item.produk?.komposisi || item.komposisi || [],
             });
             return acc;
@@ -264,44 +280,34 @@ export default function KasirHistoryPage() {
     return cashMasuk - totalBiayaOperasional;
   }, [cashMasuk, totalBiayaOperasional]);
 
-  // Rekap Pcs & Pax Produk
+  // REKAP BERDASARKAN KATEGORI (JENIS DIMSUM)
   const recapProduk = useMemo(() => {
-    const map: Record<string, { totalPcs: number; totalPax: number }> = {};
+    const map: Record<string, { namaKategori: string; totalPcs: number; totalPax: number }> = {};
 
     transaksiList.forEach((trx) => {
       trx.items.forEach((item) => {
-        const cleanName = item.namaProduk.replace(/\s*\([^)]*Mix[^)]*\)/gi, "").trim();
+        const namaKategori =
+          item.produk?.category?.name ||
+          item.produk?.category?.nama_kategori ||
+          "Lainnya";
 
-        if (item.komposisi && item.komposisi.length > 0) {
-          item.komposisi.forEach((komp) => {
-            const childName = komp.childProduct?.namaProduk || "Produk";
-            const totalPcsItem = Number(item.pax || 1) * Number(komp.qtyPcs || 1);
+        const totalPcsItem = Number(item.pcs || 1) * Number(item.pax || 1);
+        const paxItem = Number(item.pax || 1);
 
-            if (!map[childName]) {
-              map[childName] = { totalPcs: 0, totalPax: 0 };
-            }
-
-            map[childName].totalPcs += totalPcsItem;
-            map[childName].totalPax += Number(item.pax || 1);
-          });
-        } else {
-          const totalPcsItem = (item.pcs || 1) * (item.pax || 1);
-
-          if (!map[cleanName]) {
-            map[cleanName] = { totalPcs: 0, totalPax: 0 };
-          }
-
-          map[cleanName].totalPcs += totalPcsItem;
-          map[cleanName].totalPax += Number(item.pax || 1);
+        if (!map[namaKategori]) {
+          map[namaKategori] = {
+            namaKategori,
+            totalPcs: 0,
+            totalPax: 0,
+          };
         }
+
+        map[namaKategori].totalPcs += totalPcsItem;
+        map[namaKategori].totalPax += paxItem;
       });
     });
 
-    return Object.entries(map).map(([namaProduk, data]) => ({
-      namaProduk,
-      totalPcs: data.totalPcs,
-      totalPax: data.totalPax,
-    }));
+    return Object.values(map);
   }, [transaksiList]);
 
   const grandTotalPcs = useMemo(() => {
@@ -416,7 +422,7 @@ export default function KasirHistoryPage() {
           </div>
         </div>
 
-        {/* REKAP PRODUK KELUAR HARI INI */}
+        {/* REKAP JENIS DIMSUM (KATEGORI) HARI INI */}
         <div className="bg-white rounded-xl border border-slate-200/80 p-4 space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
             <div className="flex items-center gap-2">
@@ -426,31 +432,31 @@ export default function KasirHistoryPage() {
                 </svg>
               </div>
               <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                Produk Keluar Hari Ini
+                Rekap Jenis Dimsum (Kategori) Hari Ini
               </h2>
             </div>
 
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200/80">
-                {recapProduk.length} Menu
+                {recapProduk.length} Kategori
               </span>
             </div>
           </div>
 
           {recapProduk.length === 0 ? (
             <p className="text-xs text-slate-400 italic text-center py-3">
-              Belum ada produk keluar hari ini.
+              Belum ada data rekap kategori keluar hari ini.
             </p>
           ) : (
             <div className="divide-y divide-slate-100">
               {recapProduk.map((item) => (
                 <div
-                  key={item.namaProduk}
+                  key={item.namaKategori}
                   className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0 text-xs"
                 >
                   <div className="space-y-0.5">
                     <p className="font-semibold text-slate-800 leading-tight">
-                      {item.namaProduk}
+                      {item.namaKategori}
                     </p>
                     <p className="text-[10px] font-medium text-slate-400">
                       Terjual dalam {item.totalPax} Pax

@@ -1,9 +1,11 @@
+const { Op } = require("sequelize");
 const db = require("../models");
 
 const KaryawanModel = db.Karyawan || db.karyawan;
 const Penjualan = db.penjualan || db.Penjualan;
 const UserModel = db.User || db.user || db.users;
 const ProdukModel = db.produk || db.Produk || db.produks;
+const CategoryModel = db.category || db.Category;
 const HargaProdukModel = db.hargaProduk;
 const OutletModel = db.Outlet;
 const DetailSausModel = db.DetailSaus || db.detailSaus || db.detailsaus;
@@ -163,7 +165,6 @@ const checkoutTransaksi = async (req, res) => {
       });
     }
 
-    // Ambil data ID produk pendukung untuk menu Mix
     const mixComponents = await ProdukModel.findAll({
       where: {
         namaProduk: ["Dimsum Original", "Dimsum Rice Paper"],
@@ -231,19 +232,16 @@ const checkoutTransaksi = async (req, res) => {
       const subtotal = unitPrice * pax;
       calculatedTotal += subtotal;
 
-      // Cek apakah produk merupakan varian Mix
       const isMixProduct = product.namaProduk.toLowerCase().includes("mix");
 
       if (isMixProduct) {
         const halfSubtotal = subtotal / 2;
-        const halfPcs = Math.floor(pcs / 2); // Bagi total PCS dengan 2 secara dinamis (6 -> 3, 4 -> 2)
+        const halfPcs = Math.floor(pcs / 2);
         const origProd = componentMap.get("dimsum original");
         const riceProd = componentMap.get("dimsum rice paper");
 
-        // Label keterangan produk asal Mix
         const mixLabel = `(Mix: ${product.namaProduk})`;
 
-        // 1. Catat sebagai Dimsum Original
         dataPenjualan.push({
           invoice,
           idProduk: origProd ? origProd.id : productId,
@@ -259,7 +257,6 @@ const checkoutTransaksi = async (req, res) => {
           _itemIndex: i,
         });
 
-        // 2. Catat sebagai Dimsum Rice Paper
         dataPenjualan.push({
           invoice,
           idProduk: riceProd ? riceProd.id : productId,
@@ -275,7 +272,6 @@ const checkoutTransaksi = async (req, res) => {
           _itemIndex: i,
         });
       } else {
-        // Produk reguler biasa
         dataPenjualan.push({
           invoice,
           idProduk: productId,
@@ -382,11 +378,24 @@ const tampilPenjualanByUserId = async (req, res) => {
     }
 
     if (ProdukModel) {
-      includeOptions.push({
+      const productInclude = {
         model: ProdukModel,
         as: "produk",
         required: false,
-      });
+      };
+
+      if (CategoryModel) {
+        productInclude.include = [
+          {
+            model: CategoryModel,
+            as: "category",
+            attributes: ["id", "name"],
+            required: false,
+          },
+        ];
+      }
+
+      includeOptions.push(productInclude);
     }
 
     if (DetailSausModel) {
@@ -460,11 +469,24 @@ const tampilPenjualanByOutletId = async (req, res) => {
     }
 
     if (ProdukModel) {
-      includeOptions.push({
+      const productInclude = {
         model: ProdukModel,
         as: "produk",
         required: false,
-      });
+      };
+
+      if (CategoryModel) {
+        productInclude.include = [
+          {
+            model: CategoryModel,
+            as: "category",
+            attributes: ["id", "name"],
+            required: false,
+          },
+        ];
+      }
+
+      includeOptions.push(productInclude);
     }
 
     if (DetailSausModel) {

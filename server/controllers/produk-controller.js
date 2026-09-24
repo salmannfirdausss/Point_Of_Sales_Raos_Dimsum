@@ -104,7 +104,7 @@ const getProdukByCategory = async (req, res) => {
   }
 };
 
-// CREATE produk (DENGAN SUPPORT OUTLET IDS ARRAY)
+// CREATE produk (DENGAN SUPPORT OUTLET IDS ARRAY - TANPA PROSES FOTO PRODUK)
 const createProduk = async (req, res) => {
   const t = await sequelize.transaction();
   try {
@@ -121,23 +121,22 @@ const createProduk = async (req, res) => {
       return res.status(400).json({ success: false, message: "Kategori wajib dipilih" });
     }
 
-    // Tangkap data dari multi-select frontend
     const rawOutletIds = parseArrayField(req.body.outletId || req.body.outletIds);
     const outletArray = rawOutletIds.map((id) => String(id)).filter(Boolean);
     const outletIdsVal = outletArray.length > 0 ? JSON.stringify(outletArray) : null;
 
     const toppings = parseArrayField(req.body.toppings);
     const hargaproduks = parseArrayField(req.body.hargaproduks);
-    const produkImg = req.file ? req.file.filename : null;
 
+    // Pengelolaan foto produk dihilangkan sepenuhnya
     const newProduk = await produk.create(
       {
         namaProduk: namaProduk.trim(),
         keterangan: keterangan || null,
         categoryId: validCategoryId,
         tenantId: parseSafeNumber(tenantId),
-        outletIds: outletIdsVal, // Disimpan sebagai JSON array string
-        produkImg,
+        outletIds: outletIdsVal,
+        produkImg: null,
       },
       { transaction: t }
     );
@@ -179,12 +178,6 @@ const createProduk = async (req, res) => {
   } catch (error) {
     await t.rollback();
     console.error("❌ Error pada createProduk:", error);
-
-    if (req.file) {
-      const filePath = path.join("uploads", req.file.filename);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    }
-
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -199,20 +192,7 @@ const updateProduk = async (req, res) => {
     const item = await produk.findByPk(id);
     if (!item) {
       await t.rollback();
-      if (req.file) {
-        const filePath = path.join("uploads", req.file.filename);
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      }
       return res.status(404).json({ success: false, message: "Produk tidak ditemukan" });
-    }
-
-    let produkImg = item.produkImg;
-    if (req.file) {
-      if (item.produkImg) {
-        const oldPath = path.join("uploads", item.produkImg);
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-      }
-      produkImg = req.file.filename;
     }
 
     const validCategoryId = categoryId !== undefined ? parseSafeNumber(categoryId) : item.categoryId;
@@ -221,6 +201,7 @@ const updateProduk = async (req, res) => {
     const outletArray = rawOutletIds.map((id) => String(id)).filter(Boolean);
     const outletIdsVal = outletArray.length > 0 ? JSON.stringify(outletArray) : null;
 
+    // Foto produk dikosongkan/diabaikan
     await item.update(
       {
         namaProduk: namaProduk ? namaProduk.trim() : item.namaProduk,
@@ -228,7 +209,7 @@ const updateProduk = async (req, res) => {
         categoryId: validCategoryId,
         tenantId: tenantId !== undefined ? parseSafeNumber(tenantId) : item.tenantId,
         outletIds: outletIdsVal,
-        produkImg,
+        produkImg: null,
       },
       { transaction: t }
     );
@@ -302,12 +283,6 @@ const updateProduk = async (req, res) => {
   } catch (error) {
     await t.rollback();
     console.error("❌ Error pada updateProduk:", error);
-
-    if (req.file) {
-      const filePath = path.join("uploads", req.file.filename);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    }
-
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -355,11 +330,6 @@ const deleteProduk = async (req, res) => {
     if (!item) {
       await t.rollback();
       return res.status(404).json({ success: false, message: "Produk tidak ditemukan" });
-    }
-
-    if (item.produkImg) {
-      const filePath = path.join("uploads", item.produkImg);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
 
     await topping.destroy({ where: { produkId: id }, transaction: t });
